@@ -58,6 +58,7 @@
         "ratio": "cpp",
         "system_error": "cpp",
         "thread": "cpp",
-        "*.ipp": "cpp"
+        "*.ipp": "cpp",
+        "vector": "cpp"
     }
 }

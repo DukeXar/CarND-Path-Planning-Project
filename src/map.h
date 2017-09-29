@@ -1,0 +1,42 @@
+#pragma once
+
+#include <string>
+#include <vector>
+
+struct Point {
+  double x, y;
+};
+
+struct CurvePoint {
+  double s, dx, dy;
+};
+
+struct FrenetPoint {
+  double s, d;
+};
+
+struct Car {
+  Point pos;
+  double yaw;
+  double speed;
+};
+
+double Distance(double x1, double y1, double x2, double y2);
+
+class Map {
+ public:
+  void AddWaypoint(const Point &pt, const CurvePoint &cp);
+
+  const std::vector<Point> &get_waypoints_xy() { return m_waypointsXY; }
+  const std::vector<CurvePoint> &get_waypoints_fn() { return m_waypointsFn; }
+
+  Point FromFrenet(const FrenetPoint &pt) const;
+  FrenetPoint ToFrenet(const Car &car) const;
+  int ClosestWaypoint(const Point &pt) const;
+
+ private:
+  std::vector<Point> m_waypointsXY;
+  std::vector<CurvePoint> m_waypointsFn;
+};
+
+void ReadMap(const std::string &filename, Map &map);
