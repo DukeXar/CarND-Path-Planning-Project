@@ -16,7 +16,8 @@ struct OtherCar {
 
 class Planner {
  public:
-  explicit Planner(const Map& map, double updatePeriod);
+  explicit Planner(const Map& map, double updatePeriodS,
+                   double laneWidthMeters);
 
   std::vector<Point> Update(const CarEx& car,
                             const std::vector<Point>& unprocessedPath,
@@ -25,6 +26,8 @@ class Planner {
 
  private:
   const double m_updatePeriod;
+  const double m_laneWidth;
   Map m_map;
   std::vector<Point> m_plannedPath;
+  unsigned m_updateNumber;
 };

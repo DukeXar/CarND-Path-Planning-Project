@@ -33,6 +33,8 @@ class Map {
   Point FromFrenet(const FrenetPoint &pt) const;
   FrenetPoint ToFrenet(const Car &car) const;
   int ClosestWaypoint(const Point &pt) const;
+  
+  size_t GetSize() const { return m_waypointsFn.size(); }
 
  private:
   std::vector<Point> m_waypointsXY;

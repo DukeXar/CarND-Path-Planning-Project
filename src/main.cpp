@@ -38,12 +38,16 @@ int main() {
   // Waypoint map to read from
   const std::string MAP_FILENAME = "../data/highway_map.csv";
   // The max s value before wrapping around the track back to 0
-  const double max_s = 6945.554;
+  // const double max_s = 6945.554;
+  const double kLaneWidthMeters = 4;
+  const double kUpdatePeriodSeconds = 0.02;
 
   Map map;
   ReadMap(MAP_FILENAME, map);
+  
+  std::cout << "Loaded map " << MAP_FILENAME << ", total " << map.GetSize() << " points" << std::endl;
 
-  Planner planner(map, 0.5);
+  Planner planner(map, kUpdatePeriodSeconds, kLaneWidthMeters);
 
   h.onMessage([&planner](uWS::WebSocket<uWS::SERVER> ws, char *data,
                          size_t length, uWS::OpCode opCode) {
@@ -71,7 +75,7 @@ int main() {
           double car_yaw = j[1]["yaw"];
           double car_speed = j[1]["speed"];
 
-          CarEx car{Car{Point{car_x, car_y}, car_yaw, car_speed},
+          CarEx car{Car{Point{car_x, car_y}, car_yaw, MiphToMs(car_speed)},
                     FrenetPoint{car_s, car_d}};
 
           // Previous path data given to the Planner
@@ -92,14 +96,13 @@ int main() {
 
           // Sensor Fusion Data, a list of all other cars on the same side of
           // the road.
-          // auto & sensor_fusion = j[1]["sensor_fusion"];
 
           std::vector<OtherCar> sensors;
 
           for (const auto &input : j[1]["sensor_fusion"]) {
             int id = input[0];
             Point pos{input[1], input[2]};
-            Point speed{input[3], input[4]};
+            Point speed{MiphToMs(input[3]), MiphToMs(input[4])};
             FrenetPoint fnPos{input[5], input[6]};
             OtherCar ocar{id, pos, speed, fnPos};
             sensors.push_back(ocar);

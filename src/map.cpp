@@ -3,6 +3,7 @@
 #include <cmath>
 #include <fstream>
 #include <sstream>
+#include <iostream>
 #include "utils.h"
 
 double Distance(double x1, double y1, double x2, double y2) {
@@ -46,7 +47,7 @@ FrenetPoint ToFrenet(double x, double y, double theta,
 
   int prev_wp;
   if (next_wp == 0) {
-    prev_wp = map.size() - 1;
+    prev_wp = static_cast<int>(map.size() - 1);
   } else {
     prev_wp = next_wp - 1;
   }
