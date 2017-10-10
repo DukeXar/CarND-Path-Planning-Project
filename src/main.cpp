@@ -145,7 +145,6 @@ int main() {
 
   h.onDisconnection([&h](uWS::WebSocket<uWS::SERVER> ws, int code,
                          char *message, size_t length) {
-    ws.close();
     std::cout << "Disconnected" << std::endl;
   });
 
