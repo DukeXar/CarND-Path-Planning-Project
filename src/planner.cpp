@@ -69,16 +69,8 @@ double JerkMinimizingTrajectory::Eval3(double time) const {
 }
 
 
-/**
- 
- Decide about target position and speed (and acc?) - target state
- Generate optimal trajectory based on target state, weights, positions and models of the other vehicles
- 
- Take the optimal trajectory and decide about target state, repeat until satisfied
- 
- Start applying optimal trajectory
- 
- */
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 struct State2D {
   State s;
@@ -89,6 +81,57 @@ struct Goal2D {
   State2D state;
   double time;
 };
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+const double kSigmaSAcc = 2.0;
+const double kSigmaSV = 4.0;
+const double kSigmaSS = 10.0;
+
+const double kSigmaDAcc = 1.0;
+const double kSigmaDV = 1.0;
+const double kSigmaDS = 1.0;
+
+
+State2D PerturbTarget(const State2D & target) {
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  
+  State resS;
+  {
+    std::normal_distribution<> d(target.s.s, kSigmaSS);
+    resS.s = d(gen);
+  }
+  {
+    std::normal_distribution<> d(target.s.v, kSigmaSV);
+    resS.v = d(gen);
+  }
+  {
+    std::normal_distribution<> d(target.s.acc, kSigmaSAcc);
+    resS.acc = d(gen);
+  }
+  
+  State resD;
+  {
+    std::normal_distribution<> d(target.d.s, kSigmaDS);
+    resD.s = d(gen);
+  }
+  {
+    std::normal_distribution<> d(target.d.v, kSigmaDV);
+    resD.v = d(gen);
+  }
+  {
+    std::normal_distribution<> d(target.d.acc, kSigmaDAcc);
+    resD.acc = d(gen);
+  }
+  return {resS, resD};
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 class Target {
 public:
@@ -108,10 +151,11 @@ State2D FixedTarget::At(double time) const {
   return m_state;
 }
 
+
 class ConstantSpeedTarget : public Target {
 public:
   explicit ConstantSpeedTarget(double speed, double startS, const State & stateD)
-  : m_speed(speed), m_startS(startS) {}
+  : m_speed(speed), m_startS(startS), m_stateD(stateD) {}
   
   virtual State2D At(double time) const override;
   
@@ -129,35 +173,33 @@ State2D ConstantSpeedTarget::At(double time) const {
   return State2D{State{s, m_speed, 0}, m_stateD};
 }
 
+
 class World {
 public:
 };
 
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 typedef std::function<double(const JerkMinimizingTrajectory & sTraj,
-                     const JerkMinimizingTrajectory & dTraj,
-                     const Target & target,
-                     const World & world,
-                     double targetTime)> CostFunction;
+                     const JerkMinimizingTrajectory & dTraj)> CostFunction;
 
 
 double WeightedCostFunction(const std::vector<std::pair<double, CostFunction>> & weigtedFunctions,
-                            const JerkMinimizingTrajectory & sTraj, const JerkMinimizingTrajectory & dTraj,
-                            const Target & target, const World & world, double targetTime) {
+                            const JerkMinimizingTrajectory & sTraj, const JerkMinimizingTrajectory & dTraj) {
   double result = 0;
   for (const auto & wf : weigtedFunctions) {
-    result += wf.first * wf.second(sTraj, dTraj, target, world, targetTime);
+    result += wf.first * wf.second(sTraj, dTraj);
   }
   return result;
 }
 
-double AllGoodFunction(const JerkMinimizingTrajectory & sTraj, const JerkMinimizingTrajectory & dTraj,
-                       const Target & target, const World & world, double targetTime) {
+double AllGoodFunction(const JerkMinimizingTrajectory & sTraj, const JerkMinimizingTrajectory & dTraj) {
   return 1.0;
 }
 
-double SpeedLimitFunction(double speedLimit, const JerkMinimizingTrajectory & sTraj, const JerkMinimizingTrajectory & dTraj,
-                          const Target & target, const World & world, double targetTime) {
+double SpeedLimitFunction(const JerkMinimizingTrajectory & sTraj, const JerkMinimizingTrajectory & dTraj,
+                          double targetTime, double speedLimit) {
   double maxSpeedSoFar = 0;
   size_t totalIntervals = 100;
   double intervalLength = targetTime / totalIntervals;
@@ -173,49 +215,42 @@ double SpeedLimitFunction(double speedLimit, const JerkMinimizingTrajectory & sT
   return (speedLimit - maxSpeedSoFar) / speedLimit;
 }
 
-const double kSigmaSAcc = 2.0;
-const double kSigmaSV = 4.0;
-const double kSigmaSS = 10.0;
-
-const double kSigmaDAcc = 1.0;
-const double kSigmaDV = 1.0;
-const double kSigmaDS = 1.0;
-
-const int kSamples = 10;
-
-State2D PerturbTarget(const State2D & target) {
-  std::random_device rd;
-  std::mt19937 gen(rd());
-
-  State resS;
-  {
-    std::normal_distribution<> d(target.s.s, kSigmaSS);
-    resS.s = d(gen);
-  }
-  {
-    std::normal_distribution<> d(target.s.v, kSigmaSV);
-    resS.v = d(gen);
-  }
-  {
-    std::normal_distribution<> d(target.s.acc, kSigmaSAcc);
-    resS.acc = d(gen);
-  }
-
-  State resD;
-  {
-    std::normal_distribution<> d(target.d.s, kSigmaDS);
-    resD.s = d(gen);
-  }
-  {
-    std::normal_distribution<> d(target.d.v, kSigmaDV);
-    resD.v = d(gen);
-  }
-  {
-    std::normal_distribution<> d(target.d.acc, kSigmaDAcc);
-    resD.acc = d(gen);
-  }
-  return {resS, resD};
+double Logistic(double x) {
+  return 2.0 / (1 + exp(-x)) - 1.0;
 }
+
+double ClosenessCost(double x1, double x2, double sigma) {
+  return Logistic(std::abs(x1 - x2) / sigma);
+}
+
+double ClosenessToTargetSState(const JerkMinimizingTrajectory & sTraj, const JerkMinimizingTrajectory & dTraj,
+                               const Target & target, double targetTime) {
+  auto targetState = target.At(targetTime);
+
+  double cost = 0;
+
+  cost += ClosenessCost(targetState.s.s, sTraj.Eval(targetTime), kSigmaSS);
+  cost += ClosenessCost(targetState.s.v, sTraj.Eval2(targetTime), kSigmaSV);
+  cost += ClosenessCost(targetState.s.acc, sTraj.Eval3(targetTime), kSigmaSAcc);
+  
+  return cost;
+}
+
+double ClosenessToTargetDState(const JerkMinimizingTrajectory & sTraj, const JerkMinimizingTrajectory & dTraj,
+                               const Target & target, double targetTime) {
+  auto targetState = target.At(targetTime);
+
+  double cost = 0;
+  
+  cost += ClosenessCost(targetState.d.s, dTraj.Eval(targetTime), kSigmaDS);
+  cost += ClosenessCost(targetState.d.v, dTraj.Eval2(targetTime), kSigmaDV);
+  cost += ClosenessCost(targetState.d.acc, dTraj.Eval3(targetTime), kSigmaDAcc);
+  
+  return cost;
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
 
 
 typedef std::unique_ptr<JerkMinimizingTrajectory> TrajectoryPtr;
@@ -223,9 +258,10 @@ typedef std::unique_ptr<JerkMinimizingTrajectory> TrajectoryPtr;
 std::pair<TrajectoryPtr, TrajectoryPtr> FindBestTrajectory(const State2D & start,
                                                            const Target & target,
                                                            double targetTime,
-                                                           const World & world,
                                                            double timeDelta,
                                                            const CostFunction & costFunction) {
+  
+  const int kSamples = 10;
   
   std::vector<Goal2D> goals;
   
@@ -241,7 +277,7 @@ std::pair<TrajectoryPtr, TrajectoryPtr> FindBestTrajectory(const State2D & start
 
     currTime += timeDelta;
   }
-  
+
   std::vector<std::pair<TrajectoryPtr, TrajectoryPtr>> trajectories;
   
   for (const auto & goal : goals) {
@@ -254,7 +290,7 @@ std::pair<TrajectoryPtr, TrajectoryPtr> FindBestTrajectory(const State2D & start
   
   std::vector<double> allCosts;
   for (const auto & sdTraj : trajectories) {
-    allCosts.push_back(costFunction(*sdTraj.first, *sdTraj.second, target, world, targetTime));
+    allCosts.push_back(costFunction(*sdTraj.first, *sdTraj.second));
   }
   
 //  std::cout << "allCosts=[";
@@ -265,6 +301,10 @@ std::pair<TrajectoryPtr, TrajectoryPtr> FindBestTrajectory(const State2D & start
   
   return std::move(trajectories[bestIdx]);
 }
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 Planner::Planner(const Map& map, double updatePeriodSeconds,
                  double laneWidthMeters)
@@ -279,19 +319,17 @@ std::vector<Point> Planner::Update(const CarEx& car,
                                    const std::vector<OtherCar>& sensors) {
   const double kTargetSpeed = MiphToMs(10);
 
-  const double kHorizonSeconds = 30;
+  const double kHorizonSeconds = 10;
 
   const int kHorizonCount = kHorizonSeconds / m_updatePeriod;
 
-  const int currentLane = 0;
+  const int currentLane = 1;
   const double currentLaneD = currentLane * m_laneWidth + m_laneWidth / 2;
   const double currentSpeed = car.car.speed;
 
   std::cout << "currentS=" << car.fp.s << ", speed=" << car.car.speed << std::endl;
-  
+
   double targetTime = 10;
-  double targetPosS = car.fp.s + 50;
-  
   double currentAccS = 0;
 
   if (m_plannedTrajectory) {
@@ -301,29 +339,25 @@ std::vector<Point> Planner::Update(const CarEx& car,
     }
   }
 
-  auto costFunction = [](const JerkMinimizingTrajectory & sTraj, const JerkMinimizingTrajectory & dTraj,
-                         const Target & target, const World & world, double targetTime) {
-    return SpeedLimitFunction(50, sTraj, dTraj, target, world, targetTime);
+  State2D startState{State{car.fp.s, currentSpeed, currentAccS}, State{car.fp.d, 0, 0}};
+  ConstantSpeedTarget target(kTargetSpeed, car.fp.s, State{currentLaneD, 0, 0});
+
+  World world;
+  
+  auto costFunction = [targetTime, target, &world](const JerkMinimizingTrajectory & sTraj, const JerkMinimizingTrajectory & dTraj) {
+    return ClosenessToTargetSState(sTraj, dTraj, target, targetTime) + ClosenessToTargetDState(sTraj, dTraj, target, targetTime);
   };
   
-  World world;
-  auto bestTrajectory = FindBestTrajectory(State2D{State{car.fp.s, currentSpeed, currentAccS}, State{car.fp.d, 0, 0}},
-                                           ConstantSpeedTarget(kTargetSpeed, car.fp.s, State{currentLaneD, 0, 0}),
-                                           targetTime,
-                                           world,
-                                           0.5,
-                                           costFunction);
-  
+  auto bestTrajectory = FindBestTrajectory(startState, target, targetTime, 0.5, costFunction);
+
   auto & newTrajectory = bestTrajectory.first;
       
   std::vector<Point> planned;
   std::vector<double> plannedS;
   for (int i = 0; i < kHorizonCount; ++i) {
     FrenetPoint pt = car.fp;
-    //pt.s = newTrajectory->Eval(i * m_updatePeriod);
-    pt.s += i * 5 * m_updatePeriod;
-    
-    //pt.d = bestTrajectory.second->Eval(i * m_updatePeriod);
+    pt.s = bestTrajectory.first->Eval(i * m_updatePeriod);
+    pt.d = bestTrajectory.second->Eval(i * m_updatePeriod);
     plannedS.push_back(pt.s);
     planned.push_back(m_map.FromFrenet(pt));
   }
@@ -337,9 +371,9 @@ std::vector<Point> Planner::Update(const CarEx& car,
   
   m_plannedPath = planned;
   m_plannedTrajectory.swap(newTrajectory);
-  if (m_updateNumber > 1) {
-    return unprocessedPath;
-  }
+  //if (m_updateNumber > 1) {
+  //  return unprocessedPath;
+  //}
   m_updateNumber++;
   return m_plannedPath;
 }
