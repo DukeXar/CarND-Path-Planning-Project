@@ -5,6 +5,7 @@
 #include <sstream>
 #include <iostream>
 #include "utils.h"
+#include "spline_utils.h"
 
 double Distance(double x1, double y1, double x2, double y2) {
   return sqrt(static_cast<long double>(x2 - x1) * (x2 - x1) +
@@ -99,7 +100,24 @@ Point FromFrenet(const FrenetPoint &point,
   }
 
   int wp2 = (prev_wp + 1) % map.size();
-
+//  int wp3 = wp2 + 1;
+//
+//  using SplineUtils::GetSpline;
+//
+//  std::vector<double> s_points{map_fn[prev_wp].s, map_fn[wp2].s, map_fn[wp3].s};
+//
+//  std::cout << "points=" << s_points[0] << "," << s_points[1] << "," << s_points[2] << std::endl;
+//
+//  double d = -point.d;
+//  auto spl_x = GetSpline(s_points, {map[prev_wp].x + map_fn[prev_wp].dx * d, map[wp2].x + map_fn[wp2].dx * d, map[wp3].x + map_fn[wp3].dx * d});
+//  std::cout << "map.x=" << map[prev_wp].x << "," << map[wp2].x << "," << map[wp3].x << " -> " << spl_x(point.s) << std::endl;
+//
+//  auto spl_y = GetSpline(s_points, {map[prev_wp].y + map_fn[prev_wp].dy * d, map[wp2].y + map_fn[wp2].dy * d, map[wp3].y + map_fn[wp3].dy * d});
+//  std::cout << "map.y=" << map[prev_wp].y << "," << map[wp2].y << "," << map[wp3].y << " -> " << spl_y(point.s) << std::endl;
+//
+//  double x = spl_x(point.s);
+//  double x = spl_y(point.s);
+  
   double heading =
       atan2((map[wp2].y - map[prev_wp].y), (map[wp2].x - map[prev_wp].x));
   // the x,y,s along the segment
