@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <array>
 #include "utils.h"
 #include "spline_utils.h"
 
@@ -100,23 +101,6 @@ Point FromFrenet(const FrenetPoint &point,
   }
 
   int wp2 = (prev_wp + 1) % map.size();
-//  int wp3 = wp2 + 1;
-//
-//  using SplineUtils::GetSpline;
-//
-//  std::vector<double> s_points{map_fn[prev_wp].s, map_fn[wp2].s, map_fn[wp3].s};
-//
-//  std::cout << "points=" << s_points[0] << "," << s_points[1] << "," << s_points[2] << std::endl;
-//
-//  double d = -point.d;
-//  auto spl_x = GetSpline(s_points, {map[prev_wp].x + map_fn[prev_wp].dx * d, map[wp2].x + map_fn[wp2].dx * d, map[wp3].x + map_fn[wp3].dx * d});
-//  std::cout << "map.x=" << map[prev_wp].x << "," << map[wp2].x << "," << map[wp3].x << " -> " << spl_x(point.s) << std::endl;
-//
-//  auto spl_y = GetSpline(s_points, {map[prev_wp].y + map_fn[prev_wp].dy * d, map[wp2].y + map_fn[wp2].dy * d, map[wp3].y + map_fn[wp3].dy * d});
-//  std::cout << "map.y=" << map[prev_wp].y << "," << map[wp2].y << "," << map[wp3].y << " -> " << spl_y(point.s) << std::endl;
-//
-//  double x = spl_x(point.s);
-//  double x = spl_y(point.s);
   
   double heading =
       atan2((map[wp2].y - map[prev_wp].y), (map[wp2].x - map[prev_wp].x));
@@ -134,8 +118,53 @@ Point FromFrenet(const FrenetPoint &point,
   return {x, y};
 }
 
+Point FromFrenetSmooth(const FrenetPoint &point,
+                       const std::vector<CurvePoint> &map_fn,
+                       const std::vector<Point> &map) {
+  long next_wp = 0;
+  
+  while (point.s > map_fn[next_wp].s && next_wp < map_fn.size()) {
+    next_wp++;
+  }
+  
+  std::array<unsigned long, 3> path = {
+    next_wp > 0 ? next_wp-1 : map_fn.size()-1,
+    static_cast<unsigned long>(next_wp),
+    (next_wp+1) % map_fn.size()
+  };
+
+  std::vector<double> flattenedX(path.size(), 0);
+  std::vector<double> flattenedY(path.size(), 0);
+  std::vector<double> flattenedS(path.size(), 0);
+  std::vector<double> flattenedDx(path.size(), 0);
+  std::vector<double> flattenedDy(path.size(), 0);
+
+  for (int i = 0; i < path.size(); ++i) {
+    flattenedX[i] = map[path[i]].x;
+    flattenedY[i] = map[path[i]].y;
+    flattenedS[i] = map_fn[path[i]].s;
+    flattenedDx[i] = map_fn[path[i]].dx;
+    flattenedDy[i] = map_fn[path[i]].dy;
+  }
+
+  tk::spline splineX;
+  splineX.set_points(flattenedS, flattenedX);
+  tk::spline splineY;
+  splineY.set_points(flattenedS, flattenedY);
+  tk::spline splineDx;
+  splineDx.set_points(flattenedS, flattenedDx);
+  tk::spline splineDy;
+  splineDy.set_points(flattenedS, flattenedDy);
+  
+  double x = splineX(point.s) + point.d * splineDx(point.s);
+  double y = splineY(point.s) + point.d * splineDy(point.s);
+
+  return {x, y};
+}
+
+
 Point Map::FromFrenet(const FrenetPoint &pt) const {
-  return ::FromFrenet(pt, m_waypointsFn, m_waypointsXY);
+  return ::FromFrenetSmooth(pt, m_waypointsFn, m_waypointsXY);
 }
 
 FrenetPoint Map::ToFrenet(const Car &car) const {

@@ -61,6 +61,6 @@ class Planner {
   const double m_laneWidth;
   Map m_map;
   std::vector<Point> m_plannedPath;
-  std::unique_ptr<JerkMinimizingTrajectory> m_plannedTrajectory;
+  std::unique_ptr<JerkMinimizingTrajectory> m_plannedTrajectoryS, m_plannedTrajectoryD;
   unsigned m_updateNumber;
 };

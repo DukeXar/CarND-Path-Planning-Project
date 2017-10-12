@@ -317,30 +317,57 @@ std::vector<Point> Planner::Update(const CarEx& car,
                                    const std::vector<Point>& unprocessedPath,
                                    const FrenetPoint& endPath,
                                    const std::vector<OtherCar>& sensors) {
-  const double kTargetSpeed = MiphToMs(10);
+  const double kTargetSpeed = MiphToMs(30);
 
-  const double kHorizonSeconds = 10;
+  const double kHorizonSeconds = 5;
+  const double kReplanPeriodSeconds = 1;
 
   const int kHorizonCount = kHorizonSeconds / m_updatePeriod;
 
-  const int currentLane = 1;
+  const int currentLane = 2;
   const double currentLaneD = currentLane * m_laneWidth + m_laneWidth / 2;
-  const double currentSpeed = car.car.speed;
-
-  std::cout << "currentS=" << car.fp.s << ", speed=" << car.car.speed << std::endl;
 
   double targetTime = 10;
-  double currentAccS = 0;
 
-  if (m_plannedTrajectory) {
-    ssize_t currentPos = m_plannedPath.size() - unprocessedPath.size();
-    if (currentPos > 0) {
-      currentAccS = m_plannedTrajectory->Eval3(currentPos * m_updatePeriod);
-    }
+  bool timeToReplan = m_updateNumber == 0;
+
+  std::cout << "Received " << unprocessedPath.size() << " points" << std::endl;
+  ssize_t currentPosIdx = m_plannedPath.size() - unprocessedPath.size();
+  
+  bool continueTrajectory = true;
+  
+  // WTF?
+  if (unprocessedPath.empty()) {
+    continueTrajectory = false;
+    currentPosIdx = 0;
+    timeToReplan = true;
   }
 
-  State2D startState{State{car.fp.s, currentSpeed, currentAccS}, State{car.fp.d, 0, 0}};
-  ConstantSpeedTarget target(kTargetSpeed, car.fp.s, State{currentLaneD, 0, 0});
+  if (currentPosIdx * m_updatePeriod > kReplanPeriodSeconds) {
+    timeToReplan = true;
+  }
+  
+  std::cout << "processed=" << currentPosIdx << ", currentS=" << car.fp.s << ", speed=" << car.car.speed << (timeToReplan ? ", replanning" : ", --") << std::endl;
+  
+  if (!timeToReplan) {
+    return unprocessedPath;
+  }
+
+  State2D startState{State{car.fp.s, car.car.speed, 0}, State{car.fp.d, 0, 0}};
+
+  if (m_plannedTrajectoryS && continueTrajectory) {
+    ssize_t nextPosIdx = currentPosIdx + 2;
+
+    startState.s.s = m_plannedTrajectoryS->Eval(nextPosIdx * m_updatePeriod);
+    startState.s.v = m_plannedTrajectoryS->Eval2(nextPosIdx * m_updatePeriod);
+    startState.s.acc = m_plannedTrajectoryS->Eval3(nextPosIdx * m_updatePeriod);
+    
+    startState.d.s = m_plannedTrajectoryD->Eval(nextPosIdx * m_updatePeriod);
+    startState.d.v = m_plannedTrajectoryD->Eval2(nextPosIdx * m_updatePeriod);
+    startState.d.acc = m_plannedTrajectoryD->Eval3(nextPosIdx * m_updatePeriod);
+  }
+  
+  ConstantSpeedTarget target(kTargetSpeed, startState.s.s, State{currentLaneD, 0, 0});
 
   World world;
   
@@ -350,10 +377,15 @@ std::vector<Point> Planner::Update(const CarEx& car,
   
   auto bestTrajectory = FindBestTrajectory(startState, target, targetTime, 0.5, costFunction);
 
-  auto & newTrajectory = bestTrajectory.first;
-      
-  std::vector<Point> planned;
   std::vector<double> plannedS;
+
+  std::vector<Point> planned;
+  if (continueTrajectory && (currentPosIdx + 1 < m_plannedPath.size())) {
+    // not the first time
+    planned.push_back(m_plannedPath[currentPosIdx]);
+    planned.push_back(m_plannedPath[currentPosIdx+1]);
+  }
+  
   for (int i = 0; i < kHorizonCount; ++i) {
     FrenetPoint pt = car.fp;
     pt.s = bestTrajectory.first->Eval(i * m_updatePeriod);
@@ -362,18 +394,18 @@ std::vector<Point> Planner::Update(const CarEx& car,
     planned.push_back(m_map.FromFrenet(pt));
   }
 
-  std::cout << "# " << m_updateNumber << std::endl;
-  for (int i = 1; i < planned.size(); ++i) {
-    double dist = Distance(planned[i-1].x, planned[i-1].y, planned[i].x, planned[i].y);
-    std::cout << plannedS[i] << "\t" << plannedS[i] - plannedS[i-1] << "\t" << dist/m_updatePeriod << "\n";
-  }
-  std::cout << std::endl;
-  
+//  std::cout << "# " << m_updateNumber << std::endl;
+//  for (int i = 1; i < planned.size(); ++i) {
+//    double dist = Distance(planned[i-1].x, planned[i-1].y, planned[i].x, planned[i].y);
+//    std::cout << plannedS[i] << "\t" << plannedS[i] - plannedS[i-1] << "\t" << dist/m_updatePeriod << "\n";
+//  }
+//  std::cout << std::endl;
+
   m_plannedPath = planned;
-  m_plannedTrajectory.swap(newTrajectory);
-  //if (m_updateNumber > 1) {
-  //  return unprocessedPath;
-  //}
+  std::cout << "Sending " << m_plannedPath.size() << " points" << std::endl;
+
+  m_plannedTrajectoryS.swap(bestTrajectory.first);
+  m_plannedTrajectoryD.swap(bestTrajectory.second);
   m_updateNumber++;
   return m_plannedPath;
 }
