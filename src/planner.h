@@ -23,27 +23,31 @@ struct State {
   double acc;
 };
 
+class PolyFunction {
+public:
+  PolyFunction() {}
+  explicit PolyFunction(const std::array<double, 6> & coeff): m_coeff(coeff) {}
+  
+  double Eval(double x) const;
+  double Eval2(double x) const;
+  double Eval3(double x) const;
+
+private:
+  std::array<double, 6> m_coeff;
+};
+
 class JerkMinimizingTrajectory {
 public:
   JerkMinimizingTrajectory(const State & start, const State & end, double time)
-  : m_start(start), m_end(end), m_time(time), m_fit(false) {
+  : m_start(start), m_end(end), m_time(time) {
   }
-  
-  void Fit();
-  
-  double Eval(double time) const;
-  double Eval2(double time) const;
-  double Eval3(double time) const;
-  
+
+  PolyFunction Fit() const;
+
 private:
-  void AssertFit() const;
-  
   State m_start;
   State m_end;
   double m_time;
-  bool m_fit;
-  // s(t) = a_0 + a_1 * t + a_2 * t**2 + a_3 * t**3 + a_4 * t**4 + a_5 * t**5
-  std::array<double, 6> m_coeff;
 };
 
 class Planner {
@@ -61,6 +65,8 @@ class Planner {
   const double m_laneWidth;
   Map m_map;
   std::vector<Point> m_plannedPath;
-  std::unique_ptr<JerkMinimizingTrajectory> m_plannedTrajectoryS, m_plannedTrajectoryD;
+  PolyFunction m_plannedTrajectoryS, m_plannedTrajectoryD;
+  size_t m_trajectoryOffsetIdx;
+  bool m_hasTrajectory;
   unsigned m_updateNumber;
 };

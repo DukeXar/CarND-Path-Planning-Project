@@ -127,6 +127,11 @@ Point FromFrenetSmooth(const FrenetPoint &point,
     next_wp++;
   }
   
+  // TODO: when we just start, prev_point.x > next_point.x -> set_points fails
+  if (next_wp == 0) {
+    next_wp = 1;
+  }
+
   std::array<unsigned long, 3> path = {
     next_wp > 0 ? next_wp-1 : map_fn.size()-1,
     static_cast<unsigned long>(next_wp),
@@ -138,7 +143,7 @@ Point FromFrenetSmooth(const FrenetPoint &point,
   std::vector<double> flattenedS(path.size(), 0);
   std::vector<double> flattenedDx(path.size(), 0);
   std::vector<double> flattenedDy(path.size(), 0);
-
+  
   for (int i = 0; i < path.size(); ++i) {
     flattenedX[i] = map[path[i]].x;
     flattenedY[i] = map[path[i]].y;
