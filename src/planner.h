@@ -10,13 +10,15 @@ class Decider {
 public:
   Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds);
 
-  std::pair<PolyFunction, PolyFunction> ChooseBestTrajectory(const State2D & startState);
+  std::pair<PolyFunction, PolyFunction> ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCar> & sensors);
   
 private:
   double m_horizonSeconds;
   double m_laneWidth;
   double m_minTrajectoryTimeSeconds;
   int m_state;
+  
+  int m_followingCarId;
 };
 
 class Planner {

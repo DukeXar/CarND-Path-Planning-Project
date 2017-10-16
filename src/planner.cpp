@@ -4,9 +4,19 @@
 #include <stdexcept>
 #include <functional>
 #include <algorithm>
+#include <unordered_map>
 #include "Dense"
 #include "map.h"
 #include "utils.h"
+
+
+int DPosToCurrentLane(double d, double laneWidth) {
+  return d / laneWidth;
+}
+
+double CurrentLaneToDPos(int laneIdx, double laneWidth) {
+  return laneWidth + laneWidth / 2;
+}
 
 
 class FixedTarget : public Target {
@@ -47,8 +57,63 @@ State2D ConstantSpeedTarget::At(double time) const {
 
 class World {
 public:
+  World(const std::vector<OtherCar> & sensors, double laneWidth);
+  
+  bool GetClosestCar(int laneIdx, double s, OtherCar * result) const;
+  OtherCar GetCarById(int id) const;
+  
+private:
+  double m_laneWidth;
+  std::unordered_map<int, std::vector<OtherCar>> m_cars;
+  std::unordered_map<int, OtherCar> m_byId;
 };
 
+World::World(const std::vector<OtherCar> & sensors, double laneWidth): m_laneWidth(laneWidth) {
+  for (const auto & car : sensors) {
+    int lane = DPosToCurrentLane(car.fnPos.d, m_laneWidth);
+    m_cars[lane].push_back(car);
+    m_byId[car.id] = car;
+  }
+
+  for (auto & laneAndCars : m_cars) {
+    std::sort(laneAndCars.second.begin(), laneAndCars.second.end(), [](const OtherCar & c1, const OtherCar & c2) {
+      return c1.fnPos.s < c2.fnPos.s;
+    });
+  }
+}
+
+bool World::GetClosestCar(int laneIdx, double s, OtherCar * result) const {
+  auto pos = m_cars.find(laneIdx);
+  if (pos == m_cars.end()) {
+    return false;
+  }
+  
+  const auto & carsInLane = pos->second;
+  
+  const OtherCar example{0, {0, 0}, {0, 0}, {s, 0}};
+  auto lb = std::lower_bound(carsInLane.begin(), carsInLane.end(), example,
+                             [](const OtherCar & c1, const OtherCar & c2) {
+    return c1.fnPos.s < c2.fnPos.s;
+  });
+  
+  if (lb == carsInLane.end()) {
+    return false;
+  }
+  
+  if (result) {
+    *result = *lb;
+  }
+
+  return true;
+}
+
+OtherCar World::GetCarById(int id) const {
+  auto pos = m_byId.find(id);
+  if (pos == m_byId.end()) {
+    throw std::runtime_error("Not found");
+  }
+  return pos->second;
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -174,26 +239,24 @@ double OutsideOfTheRoadPenalty(const PolyFunction & sTraj, const PolyFunction & 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+//class StateInterface {
+//public:
+//  virtual std::pair<PolyFunction, PolyFunction> ChooseTrajectory(const State2D & startState,
+//                                                                 const std::vector<OtherCar> & sensors);
+//
+//};
 
-int DPosToCurrentLane(double d, double laneWidth) {
-  return d / laneWidth;
-}
-
-double CurrentLaneToDPos(int laneIdx, double laneWidth) {
-  return laneWidth + laneWidth / 2;
-}
-
+const int kKeepSpeedState = 0;
+const int kFollowVehicleState = 1;
+const int kChangingLaneLeftState = 2;
+const int kChangingLaneRightState = 3;
 
 Decider::Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds)
-: m_horizonSeconds(horizonSeconds), m_laneWidth(laneWidth), m_minTrajectoryTimeSeconds(minTrajectoryTimeSeconds), m_state(0){
+: m_horizonSeconds(horizonSeconds), m_laneWidth(laneWidth), m_minTrajectoryTimeSeconds(minTrajectoryTimeSeconds),
+m_state(kKeepSpeedState), m_followingCarId(-1){
 }
 
-std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2D & startState) {
-  const int kKeepSpeedState = 0;
-  const int kFollowVehicleState = 1;
-  const int kChangingLaneLeftState = 2;
-  const int kChangingLaneRightState = 3;
-
+std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCar> & sensors) {
   const double kTimeStep = 0.5;
   
   const auto outsideOfTheRoadPenalty = [this](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
@@ -211,20 +274,57 @@ std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2
     return SpeedLimitCost(sTraj, dTraj, targetTime, MiphToMs(50));
   };
 
-  World world;
-  
+  World world(sensors, m_laneWidth);
+
   using std::placeholders::_1;
   using std::placeholders::_2;
+
+  const int kCurrentLaneIdx = DPosToCurrentLane(startState.d.s, m_laneWidth);
+  const double kCurrentLaneD = CurrentLaneToDPos(kCurrentLaneIdx, m_laneWidth);
   
   switch (m_state) {
     case kKeepSpeedState: {
+      OtherCar closestCar;
+      if (world.GetClosestCar(kCurrentLaneIdx, startState.s.s, &closestCar)) {
+        double distance = startState.s.s - closestCar.fnPos.s;
+        std::cout << "Found closest car id=" << closestCar.id << ", s=" << closestCar.fnPos.s << std::endl;
+        if (distance <= 30) {
+          m_state = kFollowVehicleState;
+          m_followingCarId = closestCar.id;
+        }
+      }
+    } break;
+    case kFollowVehicleState: {
+      OtherCar closestCar;
+      if (world.GetClosestCar(kCurrentLaneIdx, startState.s.s, &closestCar)) {
+        double distance = startState.s.s - closestCar.fnPos.s;
+
+        if (distance > 30) {
+          std::cout << "No cars to follow" << std::endl;
+          m_state = kKeepSpeedState;
+          m_followingCarId = -1;
+        } else {
+          if (m_followingCarId != closestCar.id) {
+            std::cout << "Found new closest car id=" << closestCar.id << ", s=" << closestCar.fnPos.s << std::endl;
+            m_followingCarId = closestCar.id;
+          }
+        }
+
+      }
+    } break;
+    default:
+      throw std::runtime_error("Not implemented");
+      break;
+  };
+  
+  switch (m_state) {
+    case kKeepSpeedState: {
+      std::cout << "Keeping speed" << std::endl;
+
       const double kTargetSpeed = MiphToMs(40);
       const double targetTime = m_horizonSeconds * 3;
 
-      const int kTargetLaneIdx = DPosToCurrentLane(startState.d.s, m_laneWidth);
-      const double kTargetLaneD = CurrentLaneToDPos(kTargetLaneIdx, m_laneWidth);
-
-      ConstantSpeedTarget target(kTargetSpeed, startState.s.s, State{kTargetLaneD, 0, 0});
+      ConstantSpeedTarget target(kTargetSpeed, startState.s.s, State{kCurrentLaneD, 0, 0});
       
       WeightedFunctions weighted{
         {1, std::bind(ClosenessToTargetSState, _1, _2, target, targetTime)},
@@ -235,11 +335,33 @@ std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2
       };
 
       auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2);
-      
-      return FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, targetTime, kTimeStep, costFunction);
+
+      auto result = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, targetTime, kTimeStep, costFunction);
+      return result;
     } break;
     case kFollowVehicleState: {
+      std::cout << "Following vehicle id=" << m_followingCarId << std::endl;
       
+//      const double kTargetSpeed = MiphToMs(40);
+      const double targetTime = m_horizonSeconds * 3;
+
+      OtherCar otherCar = world.GetCarById(m_followingCarId);
+      double otherCarSpeedModulo = std::sqrt(otherCar.speed.x * otherCar.speed.x + otherCar.speed.y * otherCar.speed.y);
+
+      ConstantSpeedTarget target(otherCarSpeedModulo, otherCar.fnPos.s, State{kCurrentLaneD, 0, 0});
+      
+      WeightedFunctions weighted{
+        {1, std::bind(ClosenessToTargetSState, _1, _2, target, targetTime)},
+        {1, std::bind(ClosenessToTargetDState, _1, _2, target, targetTime)},
+        {70, std::bind(speedLimit, _1, _2, targetTime)},
+        {70, std::bind(accelerationLimit, _1, _2, targetTime)},
+        {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, targetTime)}
+      };
+      
+      auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2);
+      
+      auto result = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, targetTime, kTimeStep, costFunction);
+      return result;
     } break;
     case kChangingLaneLeftState: {
       
@@ -248,6 +370,7 @@ std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2
       
     } break;
     default:
+      throw std::runtime_error("Not implemented");
       break;
   }
   
@@ -322,7 +445,7 @@ std::vector<Point> Planner::Update(const CarEx& car,
     startState.d.acc = m_plannedTrajectoryD.Eval3(nextPosIdx * m_updatePeriod);
   }
   
-  auto bestTrajectory = m_decider.ChooseBestTrajectory(startState);
+  auto bestTrajectory = m_decider.ChooseBestTrajectory(startState, sensors);
 
 //  std::vector<double> plannedS;
 
