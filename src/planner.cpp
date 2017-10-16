@@ -53,7 +53,9 @@ public:
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-double WeightedCostFunction(const std::vector<std::pair<double, CostFunction>> & weigtedFunctions,
+typedef std::vector<std::pair<double, CostFunction>> WeightedFunctions;
+
+double WeightedCostFunction(const WeightedFunctions & weigtedFunctions,
                             const PolyFunction & sTraj, const PolyFunction & dTraj) {
   double result = 0;
   for (const auto & wf : weigtedFunctions) {
@@ -172,33 +174,84 @@ double OutsideOfTheRoadPenalty(const PolyFunction & sTraj, const PolyFunction & 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
+int DPosToCurrentLane(double d, double laneWidth) {
+  return d / laneWidth;
+}
+
+double CurrentLaneToDPos(int laneIdx, double laneWidth) {
+  return laneWidth + laneWidth / 2;
+}
+
+
 Decider::Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds)
-: m_horizonSeconds(horizonSeconds), m_laneWidth(laneWidth), m_minTrajectoryTimeSeconds(minTrajectoryTimeSeconds) {
-  
+: m_horizonSeconds(horizonSeconds), m_laneWidth(laneWidth), m_minTrajectoryTimeSeconds(minTrajectoryTimeSeconds), m_state(0){
 }
 
 std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2D & startState) {
-  double targetTime = m_horizonSeconds * 3;
-  const double kTargetSpeed = MiphToMs(40);
+  const int kKeepSpeedState = 0;
+  const int kFollowVehicleState = 1;
+  const int kChangingLaneLeftState = 2;
+  const int kChangingLaneRightState = 3;
 
-  const int kTargetLaneIdx = 2;
-  const double kTargetLaneD = kTargetLaneIdx * m_laneWidth + m_laneWidth / 2;
-
-  ConstantSpeedTarget target(kTargetSpeed, startState.s.s, State{kTargetLaneD, 0, 0});
+  const double kTimeStep = 0.5;
   
-  World world;
-  
-  // README: Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 50 m/s^3.
-  auto costFunction = [targetTime, target, &world, this](const PolyFunction & sTraj, const PolyFunction & dTraj) {
-    return ClosenessToTargetSState(sTraj, dTraj, target, targetTime) +
-    ClosenessToTargetDState(sTraj, dTraj, target, targetTime) +
-    70 * SpeedLimitCost(sTraj, dTraj, targetTime, MiphToMs(50)) +
-    70 * AccelerationLimitCost(sTraj, dTraj, targetTime, 10) +
-    1000 * OutsideOfTheRoadPenalty(sTraj, dTraj, 0 + m_laneWidth / 4, 3 * m_laneWidth - m_laneWidth / 4, targetTime);
+  const auto outsideOfTheRoadPenalty = [this](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
+    return OutsideOfTheRoadPenalty(sTraj, dTraj, 0 + m_laneWidth / 4, 3 * m_laneWidth - m_laneWidth / 4, targetTime);
   };
   
-  auto bestTrajectory = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, targetTime, 0.5, costFunction);
-  return bestTrajectory;
+  // README: Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 50 m/s^3.
+
+  const auto accelerationLimit = [](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
+    const double kMaxAccelerationMs2 = 10;
+    return AccelerationLimitCost(sTraj, dTraj, targetTime, kMaxAccelerationMs2);
+  };
+  
+  const auto speedLimit = [](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
+    return SpeedLimitCost(sTraj, dTraj, targetTime, MiphToMs(50));
+  };
+
+  World world;
+  
+  using std::placeholders::_1;
+  using std::placeholders::_2;
+  
+  switch (m_state) {
+    case kKeepSpeedState: {
+      const double kTargetSpeed = MiphToMs(40);
+      const double targetTime = m_horizonSeconds * 3;
+
+      const int kTargetLaneIdx = DPosToCurrentLane(startState.d.s, m_laneWidth);
+      const double kTargetLaneD = CurrentLaneToDPos(kTargetLaneIdx, m_laneWidth);
+
+      ConstantSpeedTarget target(kTargetSpeed, startState.s.s, State{kTargetLaneD, 0, 0});
+      
+      WeightedFunctions weighted{
+        {1, std::bind(ClosenessToTargetSState, _1, _2, target, targetTime)},
+        {1, std::bind(ClosenessToTargetDState, _1, _2, target, targetTime)},
+        {70, std::bind(speedLimit, _1, _2, targetTime)},
+        {70, std::bind(accelerationLimit, _1, _2, targetTime)},
+        {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, targetTime)}
+      };
+
+      auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2);
+      
+      return FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, targetTime, kTimeStep, costFunction);
+    } break;
+    case kFollowVehicleState: {
+      
+    } break;
+    case kChangingLaneLeftState: {
+      
+    } break;
+    case kChangingLaneRightState: {
+      
+    } break;
+    default:
+      break;
+  }
+  
+  throw std::runtime_error("Must not reach");
 }
 
 

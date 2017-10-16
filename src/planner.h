@@ -16,6 +16,7 @@ private:
   double m_horizonSeconds;
   double m_laneWidth;
   double m_minTrajectoryTimeSeconds;
+  int m_state;
 };
 
 class Planner {
