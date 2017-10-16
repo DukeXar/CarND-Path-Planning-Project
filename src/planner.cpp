@@ -3,129 +3,11 @@
 #include <array>
 #include <stdexcept>
 #include <functional>
-#include <random>
 #include <algorithm>
 #include "Dense"
 #include "map.h"
 #include "utils.h"
 
-PolyFunction JerkMinimizingTrajectory::Fit() const {
-  const double t = m_time;
-  const double t2 = t * t;
-  const double t3 = t * t * t;
-  const double t4 = t2 * t2;
-
-  Eigen::MatrixXd a = Eigen::MatrixXd(3, 3);
-  a <<
-    t3, t4, t2 * t3,
-    3 * t2, 4 * t3, 5 * t4,
-    6 * t, 12 * t2, 20 * t3;
-  
-  const double ds = m_end.s - (m_start.s + m_start.v * t + .5 * m_start.acc * t2);
-  const double dv = m_end.v - (m_start.v + m_start.acc * t);
-  const double dacc = m_end.acc - m_start.acc;
-
-  Eigen::MatrixXd b = Eigen::MatrixXd(3, 1);
-  b << ds, dv, dacc;
-  
-  Eigen::MatrixXd c = a.inverse() * b;
-  return PolyFunction({m_start.s, m_start.v, 0.5 * m_start.acc, c.data()[0], c.data()[1], c.data()[2]});
-}
-
-double PolyFunction::Eval(double x) const {
-  double k = 1;
-  double res = 0;
-  for (const auto & c : m_coeff) {
-    res += k * c;
-    k *= x;
-  }
-
-  return res;
-}
-
-double PolyFunction::Eval2(double x) const {
-  // s(t) = a_0 + a_1 * t + a_2 * t**2 + a_3 * t**3 + a_4 * t**4 + a_5 * t**5
-  // s'(t) = a_1 + 2 * a_2 * t + 3 * a_3 * t^2 + 4 * a_4 * t^3 + 5 * a_5 * t^4
-  
-  return m_coeff[1] + 2 * m_coeff[2] * x + 3 * m_coeff[3] * x * x + 4 * m_coeff[4] * x * x * x + 5 * m_coeff[5] * x * x * x * x;
-}
-
-double PolyFunction::Eval3(double x) const {
-  // s'(t) = a_1 + 2 * a_2 * t + 3 * a_3 * t^2 + 4 * a_4 * t^3 + 5 * a_5 * t^4
-  // s''(t) =      2 * a_2     + 6 * a_3 * t  + 12 * a_4 * t^2 + 20 * a_5 * t^3
-  
-  return 2 * m_coeff[2] + 6 * m_coeff[3] * x + 12 * m_coeff[4] * x * x + 20 * m_coeff[5] * x * x * x;
-}
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-struct State2D {
-  State s;
-  State d;
-};
-
-struct Goal2D {
-  State2D state;
-  double time;
-};
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-const double kSigmaSAcc = 2.0;
-const double kSigmaSV = 4.0;
-const double kSigmaSS = 10.0;
-
-const double kSigmaDAcc = 1.0;
-const double kSigmaDV = 1.0;
-const double kSigmaDS = 1.0;
-
-
-State2D PerturbTarget(const State2D & target) {
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  
-  State resS;
-  {
-    std::normal_distribution<> d(target.s.s, kSigmaSS);
-    resS.s = d(gen);
-  }
-  {
-    std::normal_distribution<> d(target.s.v, kSigmaSV);
-    resS.v = d(gen);
-  }
-  {
-    std::normal_distribution<> d(target.s.acc, kSigmaSAcc);
-    resS.acc = d(gen);
-  }
-  
-  State resD;
-  {
-    std::normal_distribution<> d(target.d.s, kSigmaDS);
-    resD.s = d(gen);
-  }
-  {
-    std::normal_distribution<> d(target.d.v, kSigmaDV);
-    resD.v = d(gen);
-  }
-  {
-    std::normal_distribution<> d(target.d.acc, kSigmaDAcc);
-    resD.acc = d(gen);
-  }
-  return {resS, resD};
-}
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-class Target {
-public:
-  virtual State2D At(double time) const = 0;
-};
 
 class FixedTarget : public Target {
 public:
@@ -169,8 +51,6 @@ public:
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-
-typedef std::function<double(const PolyFunction & sTraj, const PolyFunction & dTraj)> CostFunction;
 
 
 double WeightedCostFunction(const std::vector<std::pair<double, CostFunction>> & weigtedFunctions,
@@ -219,6 +99,32 @@ double SpeedLimitCost(const PolyFunction & sTraj, const PolyFunction & dTraj,
   return k * maxSpeedSoFar - speedLimit;
 }
 
+double AccelerationLimitCost(const PolyFunction & sTraj, const PolyFunction & dTraj,
+                             double targetTime, double accLimit) {
+  // TODO this is a copy-paste from speed limit
+  double maxAccSoFar = 0;
+  size_t totalIntervals = 100;
+  double intervalLength = targetTime / totalIntervals;
+  for (int i = 1; i < totalIntervals; ++i) {
+    double acc = sTraj.Eval3(i * intervalLength);
+    maxAccSoFar = std::max(maxAccSoFar, acc);
+  }
+  
+  if (maxAccSoFar > accLimit) {
+    return 1.0;
+  }
+  
+  double percent = 0.9;
+  
+  if (maxAccSoFar < accLimit * percent) {
+    return 0.0;
+  }
+  
+  double a = (1-percent) * accLimit;
+  double k = accLimit / a;
+  return k * maxAccSoFar - accLimit;
+}
+
 double ClosenessToTargetSState(const PolyFunction & sTraj, const PolyFunction & dTraj,
                                const Target & target, double targetTime) {
   auto targetState = target.At(targetTime);
@@ -264,71 +170,55 @@ double OutsideOfTheRoadPenalty(const PolyFunction & sTraj, const PolyFunction & 
 }
 
 
-/////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
+Decider::Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds)
+: m_horizonSeconds(horizonSeconds), m_laneWidth(laneWidth), m_minTrajectoryTimeSeconds(minTrajectoryTimeSeconds) {
+  
+}
 
-std::pair<PolyFunction, PolyFunction> FindBestTrajectories(const State2D & start,
-                                                           const Target & target,
-                                                           double minTime,
-                                                           double targetTime,
-                                                           double timeStep,
-                                                           const CostFunction & costFunction) {
-  
-  const int kSamples = 10;
-  
-  std::vector<Goal2D> goals;
-  
-  double currTime = minTime;
-  while (currTime <= targetTime + 4 * timeStep) {
-    State2D currTarget = target.At(currTime);
-    goals.push_back({currTarget, currTime});
-    
-    for (int sample = 0; sample < kSamples; ++sample) {
-      State2D perturbedTarget = PerturbTarget(currTarget);
-      // Ensure we don't move backwards.
-      if (perturbedTarget.s.s > start.s.s) {
-        goals.push_back({perturbedTarget, currTime});
-      }
-    }
+std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2D & startState) {
+  double targetTime = m_horizonSeconds * 3;
+  const double kTargetSpeed = MiphToMs(40);
 
-    currTime += timeStep;
-  }
+  const int kTargetLaneIdx = 2;
+  const double kTargetLaneD = kTargetLaneIdx * m_laneWidth + m_laneWidth / 2;
 
-  std::vector<std::pair<PolyFunction, PolyFunction>> trajectories;
+  ConstantSpeedTarget target(kTargetSpeed, startState.s.s, State{kTargetLaneD, 0, 0});
   
-  for (const auto & goal : goals) {
-    auto sTraj = JerkMinimizingTrajectory(start.s, goal.state.s, goal.time).Fit();
-    auto dTraj = JerkMinimizingTrajectory(start.d, goal.state.d, goal.time).Fit();
-    trajectories.emplace_back(std::move(sTraj), std::move(dTraj));
-  }
+  World world;
   
-  std::vector<double> allCosts;
-  for (const auto & sdTraj : trajectories) {
-    allCosts.push_back(costFunction(sdTraj.first, sdTraj.second));
-  }
+  // README: Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 50 m/s^3.
+  auto costFunction = [targetTime, target, &world, this](const PolyFunction & sTraj, const PolyFunction & dTraj) {
+    return ClosenessToTargetSState(sTraj, dTraj, target, targetTime) +
+    ClosenessToTargetDState(sTraj, dTraj, target, targetTime) +
+    70 * SpeedLimitCost(sTraj, dTraj, targetTime, MiphToMs(50)) +
+    70 * AccelerationLimitCost(sTraj, dTraj, targetTime, 10) +
+    1000 * OutsideOfTheRoadPenalty(sTraj, dTraj, 0 + m_laneWidth / 4, 3 * m_laneWidth - m_laneWidth / 4, targetTime);
+  };
   
-//  std::cout << "allCosts=[";
-//  for (auto v : allCosts) std::cout << " " << v;
-//  std::cout << "]" << std::endl;
-
-  auto bestIdx = std::min_element(begin(allCosts), end(allCosts)) - begin(allCosts);
-  
-  std::cout << "best trajectory=[";
-  std::cout << "s=[" << "s=" << goals[bestIdx].state.s.s << ", v=" << goals[bestIdx].state.s.v << ", acc=" << goals[bestIdx].state.s.acc << "], ";
-  std::cout << "d=[" << "s=" << goals[bestIdx].state.d.s << ", v=" << goals[bestIdx].state.d.v << ", acc=" << goals[bestIdx].state.d.acc << "], ";
-  std::cout << "time=" << goals[bestIdx].time << ", cost=" << allCosts[bestIdx] << std::endl;
-  
-  return std::move(trajectories[bestIdx]);
+  auto bestTrajectory = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, targetTime, 0.5, costFunction);
+  return bestTrajectory;
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+namespace {
+  const double kHorizonSeconds = 5;
+  const double kReplanPeriodSeconds = 1;
+  const int kPointsToKeep = 0;
+  
+  // TODO: it is possible that a generated trajectory would end earlier than we replan, it is not supported now, this is why minTime
+  // is set to be higher than replan frequency.
+  const double kMinTrajectoryTimeSeconds = kReplanPeriodSeconds + 0.5;
+} // namespace
 
 Planner::Planner(const Map& map, double updatePeriodSeconds, double laneWidthMeters)
     : m_updatePeriod(updatePeriodSeconds),
       m_laneWidth(laneWidthMeters),
       m_map(map),
+      m_decider(kHorizonSeconds, laneWidthMeters, kMinTrajectoryTimeSeconds),
       m_trajectoryOffsetIdx(0),
       m_hasTrajectory(false),
       m_updateNumber(0)
@@ -338,18 +228,6 @@ std::vector<Point> Planner::Update(const CarEx& car,
                                    const std::vector<Point>& unprocessedPath,
                                    const FrenetPoint& endPath,
                                    const std::vector<OtherCar>& sensors) {
-  const double kTargetSpeed = MiphToMs(40);
-  const double kHorizonSeconds = 5;
-  const double kReplanPeriodSeconds = 2;
-  const int kPointsToKeep = 10;
-  const int kTargetLaneIdx = 2;
-  const double kTargetLaneD = kTargetLaneIdx * m_laneWidth + m_laneWidth / 2;
-
-  // TODO: it is possible that a generated trajectory would end earlier than we replan, it is not supported now, this is why minTime
-  // is set to be higher than replan frequency.
-  const double kMinTrajectoryTimeSeconds = kReplanPeriodSeconds + 0.5;
-
-  double targetTime = kHorizonSeconds * 2;
   
   bool isTimeToReplan = m_updateNumber == 0;
 
@@ -391,18 +269,7 @@ std::vector<Point> Planner::Update(const CarEx& car,
     startState.d.acc = m_plannedTrajectoryD.Eval3(nextPosIdx * m_updatePeriod);
   }
   
-  ConstantSpeedTarget target(kTargetSpeed, startState.s.s, State{kTargetLaneD, 0, 0});
-
-  World world;
-  
-  auto costFunction = [targetTime, target, &world, this](const PolyFunction & sTraj, const PolyFunction & dTraj) {
-    return ClosenessToTargetSState(sTraj, dTraj, target, targetTime) +
-           ClosenessToTargetDState(sTraj, dTraj, target, targetTime) +
-           70 * SpeedLimitCost(sTraj, dTraj, targetTime, MiphToMs(50)) +
-           1000 * OutsideOfTheRoadPenalty(sTraj, dTraj, 0, 3 * m_laneWidth, targetTime);
-  };
-  
-  auto bestTrajectory = FindBestTrajectories(startState, target, kMinTrajectoryTimeSeconds, targetTime, 0.5, costFunction);
+  auto bestTrajectory = m_decider.ChooseBestTrajectory(startState);
 
 //  std::vector<double> plannedS;
 

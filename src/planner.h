@@ -1,53 +1,21 @@
 #pragma once
 
 #include <memory>
-#include <array>
 #include <vector>
 #include "map.h"
+#include "trajectory.h"
 
-struct CarEx {
-  Car car;
-  FrenetPoint fp;
-};
 
-struct OtherCar {
-  int id;
-  Point pos;
-  Point speed;
-  FrenetPoint fnPos;
-};
-
-struct State {
-  double s;
-  double v;
-  double acc;
-};
-
-class PolyFunction {
+class Decider {
 public:
-  PolyFunction() {}
-  explicit PolyFunction(const std::array<double, 6> & coeff): m_coeff(coeff) {}
+  Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds);
+
+  std::pair<PolyFunction, PolyFunction> ChooseBestTrajectory(const State2D & startState);
   
-  double Eval(double x) const;
-  double Eval2(double x) const;
-  double Eval3(double x) const;
-
 private:
-  std::array<double, 6> m_coeff;
-};
-
-class JerkMinimizingTrajectory {
-public:
-  JerkMinimizingTrajectory(const State & start, const State & end, double time)
-  : m_start(start), m_end(end), m_time(time) {
-  }
-
-  PolyFunction Fit() const;
-
-private:
-  State m_start;
-  State m_end;
-  double m_time;
+  double m_horizonSeconds;
+  double m_laneWidth;
+  double m_minTrajectoryTimeSeconds;
 };
 
 class Planner {
@@ -64,6 +32,7 @@ class Planner {
   const double m_updatePeriod;
   const double m_laneWidth;
   Map m_map;
+  Decider m_decider;
   std::vector<Point> m_plannedPath;
   PolyFunction m_plannedTrajectoryS, m_plannedTrajectoryD;
   size_t m_trajectoryOffsetIdx;
