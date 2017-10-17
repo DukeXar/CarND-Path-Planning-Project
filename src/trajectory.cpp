@@ -5,8 +5,8 @@
 #include "Dense"
 
 
-PolyFunction JerkMinimizingTrajectory::Fit() const {
-  const double t = m_time;
+PolyFunction JerkMinimizingTrajectory(const State & start, const State & end, double time) {
+  const double t = time;
   const double t2 = t * t;
   const double t3 = t * t * t;
   const double t4 = t2 * t2;
@@ -17,15 +17,15 @@ PolyFunction JerkMinimizingTrajectory::Fit() const {
   3 * t2, 4 * t3, 5 * t4,
   6 * t, 12 * t2, 20 * t3;
   
-  const double ds = m_end.s - (m_start.s + m_start.v * t + .5 * m_start.acc * t2);
-  const double dv = m_end.v - (m_start.v + m_start.acc * t);
-  const double dacc = m_end.acc - m_start.acc;
+  const double ds = end.s - (start.s + start.v * t + .5 * start.acc * t2);
+  const double dv = end.v - (start.v + start.acc * t);
+  const double dacc = end.acc - start.acc;
   
   Eigen::MatrixXd b = Eigen::MatrixXd(3, 1);
   b << ds, dv, dacc;
   
   Eigen::MatrixXd c = a.inverse() * b;
-  return PolyFunction({m_start.s, m_start.v, 0.5 * m_start.acc, c.data()[0], c.data()[1], c.data()[2]});
+  return PolyFunction({start.s, start.v, 0.5 * start.acc, c.data()[0], c.data()[1], c.data()[2]});
 }
 
 double PolyFunction::Eval(double x) const {
@@ -92,12 +92,12 @@ State2D PerturbTarget(const State2D & target) {
   return {resS, resD};
 }
 
-std::pair<PolyFunction, PolyFunction> FindBestTrajectories(const State2D & start,
-                                                           const Target & target,
-                                                           double minTime,
-                                                           double maxTime,
-                                                           double timeStep,
-                                                           const CostFunction & costFunction) {
+BestTrajectories FindBestTrajectories(const State2D & start,
+                                      const Target & target,
+                                      double minTime,
+                                      double maxTime,
+                                      double timeStep,
+                                      const CostFunction & costFunction) {
   
   const int kSamples = 10;
   
@@ -119,19 +119,19 @@ std::pair<PolyFunction, PolyFunction> FindBestTrajectories(const State2D & start
     currTime += timeStep;
   }
   
-  std::vector<std::pair<PolyFunction, PolyFunction>> trajectories;
+  std::vector<BestTrajectories> trajectories;
   
   for (const auto & goal : goals) {
-    auto sTraj = JerkMinimizingTrajectory(start.s, goal.state.s, goal.time).Fit();
-    auto dTraj = JerkMinimizingTrajectory(start.d, goal.state.d, goal.time).Fit();
-    trajectories.emplace_back(std::move(sTraj), std::move(dTraj));
+    trajectories.push_back({
+      JerkMinimizingTrajectory(start.s, goal.state.s, goal.time),
+      JerkMinimizingTrajectory(start.d, goal.state.d, goal.time),
+      goal.time
+    });
   }
   
   std::vector<double> allCosts;
-  for (int i = 0; i < trajectories.size(); ++i) {
-    const auto & sdTraj = trajectories[i];
-    const auto & goal = goals[i];
-    allCosts.push_back(costFunction(sdTraj.first, sdTraj.second, goal.time));
+  for (const auto & traj : trajectories) {
+    allCosts.push_back(costFunction(traj.s, traj.d, traj.time));
   }
   
   //  std::cout << "allCosts=[";

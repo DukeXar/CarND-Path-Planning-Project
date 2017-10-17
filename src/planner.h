@@ -10,7 +10,7 @@ class Decider {
 public:
   Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds);
 
-  std::pair<PolyFunction, PolyFunction> ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCar> & sensors);
+  BestTrajectories ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCar> & sensors);
   
 private:
   double m_horizonSeconds;
@@ -37,7 +37,7 @@ class Planner {
   Map m_map;
   Decider m_decider;
   std::vector<Point> m_plannedPath;
-  PolyFunction m_plannedTrajectoryS, m_plannedTrajectoryD;
+  BestTrajectories m_plannedTrajectories;
   size_t m_trajectoryOffsetIdx;
   bool m_hasTrajectory;
   unsigned m_updateNumber;

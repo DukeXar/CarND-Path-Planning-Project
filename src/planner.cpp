@@ -71,15 +71,26 @@ private:
 World::World(const std::vector<OtherCar> & sensors, double laneWidth): m_laneWidth(laneWidth) {
   for (const auto & car : sensors) {
     int lane = DPosToCurrentLane(car.fnPos.d, m_laneWidth);
+//    std::cout << "lane=" << lane << ", d=" << car.fnPos.d << ", s=" << car.fnPos.s << std::endl;
     m_cars[lane].push_back(car);
     m_byId[car.id] = car;
   }
-
+  
   for (auto & laneAndCars : m_cars) {
     std::sort(laneAndCars.second.begin(), laneAndCars.second.end(), [](const OtherCar & c1, const OtherCar & c2) {
       return c1.fnPos.s < c2.fnPos.s;
     });
   }
+
+  std::cout << "Cars by lane: ";
+  for (const auto & laneAndCars : m_cars) {
+    std::cout << laneAndCars.first << "=[";
+    for (const auto & car : laneAndCars.second) {
+      std::cout << car.id << "(" << car.fnPos.s << ")" << ",";
+    }
+    std::cout << "]\n";
+  }
+  std::cout << std::endl;
 }
 
 bool World::GetClosestCar(int laneIdx, double s, OtherCar * result) const {
@@ -257,7 +268,7 @@ Decider::Decider(double horizonSeconds, double laneWidth, double minTrajectoryTi
 m_state(kKeepSpeedState), m_followingCarId(-1){
 }
 
-std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCar> & sensors) {
+BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCar> & sensors) {
   const double kTimeStep = 0.5;
   
   const auto outsideOfTheRoadPenalty = [this](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
@@ -289,7 +300,7 @@ std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2
       OtherCar closestCar;
       if (world.GetClosestCar(kCurrentLaneIdx, startState.s.s, &closestCar)) {
         double distance = closestCar.fnPos.s - startState.s.s;
-        std::cout << "Found closest car id=" << closestCar.id << ", s=" << closestCar.fnPos.s << std::endl;
+        std::cout << "Found closest car id=" << closestCar.id << ", s=" << closestCar.fnPos.s << ", my s=" << startState.s.s << std::endl;
         if (distance <= 30) {
           m_state = kFollowVehicleState;
           m_followingCarId = closestCar.id;
@@ -302,12 +313,12 @@ std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2
         double distance = closestCar.fnPos.s - startState.s.s;
 
         if (distance > 30) {
-          std::cout << "No cars to follow" << std::endl;
+          std::cout << "No cars to follow" << ", my s=" << startState.s.s << std::endl;
           m_state = kKeepSpeedState;
           m_followingCarId = -1;
         } else {
           if (m_followingCarId != closestCar.id) {
-            std::cout << "Found new closest car id=" << closestCar.id << ", s=" << closestCar.fnPos.s << std::endl;
+            std::cout << "Found new closest car id=" << closestCar.id << ", s=" << closestCar.fnPos.s << ", my s=" << startState.s.s << std::endl;
             m_followingCarId = closestCar.id;
           }
         }
@@ -427,7 +438,7 @@ std::vector<Point> Planner::Update(const CarEx& car,
     isTimeToReplan = true;
   }
   
-  std::cout << "idx=" << currentPosIdx << ", s=" << car.fp.s << ", d=" << car.fp.d << ", speed=" << car.car.speed << (isTimeToReplan ? ", replanning" : ",") << std::endl;
+//  std::cout << "idx=" << currentPosIdx << ", s=" << car.fp.s << ", d=" << car.fp.d << ", speed=" << car.car.speed << (isTimeToReplan ? ", replanning" : ",") << std::endl;
   
   if (!isTimeToReplan) {
     return unprocessedPath;
@@ -440,18 +451,16 @@ std::vector<Point> Planner::Update(const CarEx& car,
   if (m_hasTrajectory && continueTrajectory) {
     ssize_t nextPosIdx = currentPosIdx + kPointsToKeep - m_trajectoryOffsetIdx;
 
-    startState.s.s = m_plannedTrajectoryS.Eval(nextPosIdx * m_updatePeriod);
-    startState.s.v = m_plannedTrajectoryS.Eval2(nextPosIdx * m_updatePeriod);
-    startState.s.acc = m_plannedTrajectoryS.Eval3(nextPosIdx * m_updatePeriod);
+    startState.s.s = m_plannedTrajectories.s.Eval(nextPosIdx * m_updatePeriod);
+    startState.s.v = m_plannedTrajectories.s.Eval2(nextPosIdx * m_updatePeriod);
+    startState.s.acc = m_plannedTrajectories.s.Eval3(nextPosIdx * m_updatePeriod);
     
-    startState.d.s = m_plannedTrajectoryD.Eval(nextPosIdx * m_updatePeriod);
-    startState.d.v = m_plannedTrajectoryD.Eval2(nextPosIdx * m_updatePeriod);
-    startState.d.acc = m_plannedTrajectoryD.Eval3(nextPosIdx * m_updatePeriod);
+    startState.d.s = m_plannedTrajectories.d.Eval(nextPosIdx * m_updatePeriod);
+    startState.d.v = m_plannedTrajectories.d.Eval2(nextPosIdx * m_updatePeriod);
+    startState.d.acc = m_plannedTrajectories.d.Eval3(nextPosIdx * m_updatePeriod);
   }
   
   auto bestTrajectory = m_decider.ChooseBestTrajectory(startState, sensors);
-
-//  std::vector<double> plannedS;
 
   std::vector<Point> planned;
   if (continueTrajectory && (currentPosIdx + kPointsToKeep - 1 < m_plannedPath.size())) {
@@ -460,11 +469,10 @@ std::vector<Point> Planner::Update(const CarEx& car,
     m_trajectoryOffsetIdx = planned.size();
   }
 
-  for (int i = 0; i < kHorizonSeconds / m_updatePeriod; ++i) {
+  for (int i = 0; i < bestTrajectory.time / m_updatePeriod; ++i) {
     FrenetPoint pt = car.fp;
-    pt.s = bestTrajectory.first.Eval(i * m_updatePeriod);
-    pt.d = bestTrajectory.second.Eval(i * m_updatePeriod);
-//    plannedS.push_back(pt.s);
+    pt.s = bestTrajectory.s.Eval(i * m_updatePeriod);
+    pt.d = bestTrajectory.d.Eval(i * m_updatePeriod);
     planned.push_back(m_map.FromFrenet(pt));
   }
 
@@ -476,10 +484,7 @@ std::vector<Point> Planner::Update(const CarEx& car,
 //  std::cout << std::endl;
 
   m_plannedPath = planned;
-//  std::cout << "Sending " << m_plannedPath.size() << " points" << std::endl;
-
-  m_plannedTrajectoryS = bestTrajectory.first;
-  m_plannedTrajectoryD = bestTrajectory.second;
+  m_plannedTrajectories = bestTrajectory;
   m_hasTrajectory = true;
   m_updateNumber++;
   return m_plannedPath;

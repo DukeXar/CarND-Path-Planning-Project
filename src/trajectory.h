@@ -27,7 +27,7 @@ class PolyFunction {
 public:
   PolyFunction() {}
   explicit PolyFunction(const std::array<double, 6> & coeff): m_coeff(coeff) {}
-  
+
   double Eval(double x) const;
   double Eval2(double x) const;
   double Eval3(double x) const;
@@ -36,19 +36,7 @@ private:
   std::array<double, 6> m_coeff;
 };
 
-class JerkMinimizingTrajectory {
-public:
-  JerkMinimizingTrajectory(const State & start, const State & end, double time)
-  : m_start(start), m_end(end), m_time(time) {
-  }
-  
-  PolyFunction Fit() const;
-  
-private:
-  State m_start;
-  State m_end;
-  double m_time;
-};
+PolyFunction JerkMinimizingTrajectory(const State & start, const State & end, double time);
 
 struct State2D {
   State s;
@@ -71,9 +59,14 @@ const double kSigmaDS = 1.0;
 typedef std::function<double(const PolyFunction & sTraj, const PolyFunction & dTraj,
                              double targetTime)> CostFunction;
 
-std::pair<PolyFunction, PolyFunction> FindBestTrajectories(const State2D & start,
-                                                           const Target & target,
-                                                           double minTime,
-                                                           double targetTime,
-                                                           double timeStep,
-                                                           const CostFunction & costFunction);
+struct BestTrajectories {
+  PolyFunction s, d;
+  double time;
+};
+
+BestTrajectories FindBestTrajectories(const State2D & start,
+                                      const Target & target,
+                                      double minTime,
+                                      double targetTime,
+                                      double timeStep,
+                                      const CostFunction & costFunction);
