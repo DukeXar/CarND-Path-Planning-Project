@@ -15,7 +15,7 @@ int DPosToCurrentLane(double d, double laneWidth) {
 }
 
 double CurrentLaneToDPos(int laneIdx, double laneWidth) {
-  return laneWidth + laneWidth / 2;
+  return laneIdx * laneWidth + laneWidth / 2;
 }
 
 
@@ -121,15 +121,16 @@ OtherCar World::GetCarById(int id) const {
 typedef std::vector<std::pair<double, CostFunction>> WeightedFunctions;
 
 double WeightedCostFunction(const WeightedFunctions & weigtedFunctions,
-                            const PolyFunction & sTraj, const PolyFunction & dTraj) {
+                            const PolyFunction & sTraj, const PolyFunction & dTraj,
+                            double targetTime) {
   double result = 0;
   for (const auto & wf : weigtedFunctions) {
-    result += wf.first * wf.second(sTraj, dTraj);
+    result += wf.first * wf.second(sTraj, dTraj, targetTime);
   }
   return result;
 }
 
-double AllGoodFunction(const PolyFunction & sTraj, const PolyFunction & dTraj) {
+double AllGoodFunction(const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
   return 1.0;
 }
 
@@ -278,6 +279,7 @@ std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2
 
   using std::placeholders::_1;
   using std::placeholders::_2;
+  using std::placeholders::_3;
 
   const int kCurrentLaneIdx = DPosToCurrentLane(startState.d.s, m_laneWidth);
   const double kCurrentLaneD = CurrentLaneToDPos(kCurrentLaneIdx, m_laneWidth);
@@ -286,7 +288,7 @@ std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2
     case kKeepSpeedState: {
       OtherCar closestCar;
       if (world.GetClosestCar(kCurrentLaneIdx, startState.s.s, &closestCar)) {
-        double distance = startState.s.s - closestCar.fnPos.s;
+        double distance = closestCar.fnPos.s - startState.s.s;
         std::cout << "Found closest car id=" << closestCar.id << ", s=" << closestCar.fnPos.s << std::endl;
         if (distance <= 30) {
           m_state = kFollowVehicleState;
@@ -297,7 +299,7 @@ std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2
     case kFollowVehicleState: {
       OtherCar closestCar;
       if (world.GetClosestCar(kCurrentLaneIdx, startState.s.s, &closestCar)) {
-        double distance = startState.s.s - closestCar.fnPos.s;
+        double distance = closestCar.fnPos.s - startState.s.s;
 
         if (distance > 30) {
           std::cout << "No cars to follow" << std::endl;
@@ -325,25 +327,25 @@ std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2
       const double targetTime = m_horizonSeconds * 3;
 
       ConstantSpeedTarget target(kTargetSpeed, startState.s.s, State{kCurrentLaneD, 0, 0});
-      
+
       WeightedFunctions weighted{
-        {1, std::bind(ClosenessToTargetSState, _1, _2, target, targetTime)},
-        {1, std::bind(ClosenessToTargetDState, _1, _2, target, targetTime)},
-        {70, std::bind(speedLimit, _1, _2, targetTime)},
-        {70, std::bind(accelerationLimit, _1, _2, targetTime)},
-        {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, targetTime)}
+        {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
+        {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
+        {70, std::bind(speedLimit, _1, _2, _3)},
+        {70, std::bind(accelerationLimit, _1, _2, _3)},
+        {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)}
       };
 
-      auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2);
+      auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2, _3);
 
-      auto result = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, targetTime, kTimeStep, costFunction);
+      auto result = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, targetTime + 10 * kTimeStep, kTimeStep, costFunction);
       return result;
     } break;
     case kFollowVehicleState: {
       std::cout << "Following vehicle id=" << m_followingCarId << std::endl;
       
 //      const double kTargetSpeed = MiphToMs(40);
-      const double targetTime = m_horizonSeconds * 3;
+      const double targetTime = m_horizonSeconds;
 
       OtherCar otherCar = world.GetCarById(m_followingCarId);
       double otherCarSpeedModulo = std::sqrt(otherCar.speed.x * otherCar.speed.x + otherCar.speed.y * otherCar.speed.y);
@@ -351,16 +353,18 @@ std::pair<PolyFunction, PolyFunction> Decider::ChooseBestTrajectory(const State2
       ConstantSpeedTarget target(otherCarSpeedModulo, otherCar.fnPos.s, State{kCurrentLaneD, 0, 0});
       
       WeightedFunctions weighted{
-        {1, std::bind(ClosenessToTargetSState, _1, _2, target, targetTime)},
-        {1, std::bind(ClosenessToTargetDState, _1, _2, target, targetTime)},
-        {70, std::bind(speedLimit, _1, _2, targetTime)},
-        {70, std::bind(accelerationLimit, _1, _2, targetTime)},
-        {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, targetTime)}
+        {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
+        {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
+        {70, std::bind(speedLimit, _1, _2, _3)},
+        {70, std::bind(accelerationLimit, _1, _2, _3)},
+        {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)},
+        {100, std::bind(OutsideOfTheRoadPenalty, _1, _2,
+                        kCurrentLaneD - m_laneWidth/2, kCurrentLaneD + m_laneWidth/2, _3)}
       };
       
-      auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2);
-      
-      auto result = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, targetTime, kTimeStep, costFunction);
+      auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2, _3);
+
+      auto result = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, targetTime + 10, kTimeStep, costFunction);
       return result;
     } break;
     case kChangingLaneLeftState: {

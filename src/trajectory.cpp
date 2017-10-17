@@ -95,7 +95,7 @@ State2D PerturbTarget(const State2D & target) {
 std::pair<PolyFunction, PolyFunction> FindBestTrajectories(const State2D & start,
                                                            const Target & target,
                                                            double minTime,
-                                                           double targetTime,
+                                                           double maxTime,
                                                            double timeStep,
                                                            const CostFunction & costFunction) {
   
@@ -104,7 +104,7 @@ std::pair<PolyFunction, PolyFunction> FindBestTrajectories(const State2D & start
   std::vector<Goal2D> goals;
   
   double currTime = minTime;
-  while (currTime <= targetTime + 4 * timeStep) {
+  while (currTime <= maxTime) {
     State2D currTarget = target.At(currTime);
     goals.push_back({currTarget, currTime});
     
@@ -128,8 +128,10 @@ std::pair<PolyFunction, PolyFunction> FindBestTrajectories(const State2D & start
   }
   
   std::vector<double> allCosts;
-  for (const auto & sdTraj : trajectories) {
-    allCosts.push_back(costFunction(sdTraj.first, sdTraj.second));
+  for (int i = 0; i < trajectories.size(); ++i) {
+    const auto & sdTraj = trajectories[i];
+    const auto & goal = goals[i];
+    allCosts.push_back(costFunction(sdTraj.first, sdTraj.second, goal.time));
   }
   
   //  std::cout << "allCosts=[";

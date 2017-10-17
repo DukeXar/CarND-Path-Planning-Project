@@ -47,7 +47,7 @@ int main() {
   
   std::cout << "Loaded map " << MAP_FILENAME << ", total " << map.GetSize() << " points" << std::endl;
 
-  Planner planner(map, kUpdatePeriodSeconds, kLaneWidthMeters);
+  std::unique_ptr<Planner> planner;
 
   h.onMessage([&planner](uWS::WebSocket<uWS::SERVER> ws, char *data,
                          size_t length, uWS::OpCode opCode) {
@@ -109,7 +109,7 @@ int main() {
           }
 
           auto plannedPath =
-              planner.Update(car, unprocessedPath, endPath, sensors);
+              planner->Update(car, unprocessedPath, endPath, sensors);
 
           json msgJson;
 
@@ -139,8 +139,9 @@ int main() {
     }
   });
 
-  h.onConnection([&h](uWS::WebSocket<uWS::SERVER> ws, uWS::HttpRequest req) {
+  h.onConnection([&h, &planner, &map, kUpdatePeriodSeconds, kLaneWidthMeters](uWS::WebSocket<uWS::SERVER> ws, uWS::HttpRequest req) {
     std::cout << "Connected!!!" << std::endl;
+    planner = std::unique_ptr<Planner>(new Planner(map, kUpdatePeriodSeconds, kLaneWidthMeters));
   });
 
   h.onDisconnection([&h](uWS::WebSocket<uWS::SERVER> ws, int code,

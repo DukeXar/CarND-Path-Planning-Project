@@ -68,7 +68,8 @@ const double kSigmaDAcc = 1.0;
 const double kSigmaDV = 1.0;
 const double kSigmaDS = 1.0;
 
-typedef std::function<double(const PolyFunction & sTraj, const PolyFunction & dTraj)> CostFunction;
+typedef std::function<double(const PolyFunction & sTraj, const PolyFunction & dTraj,
+                             double targetTime)> CostFunction;
 
 std::pair<PolyFunction, PolyFunction> FindBestTrajectories(const State2D & start,
                                                            const Target & target,
