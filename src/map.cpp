@@ -90,84 +90,6 @@ FrenetPoint ToFrenet(double x, double y, double theta,
   return {frenet_s, frenet_d};
 }
 
-Point FromFrenet(const FrenetPoint &point,
-                 const std::vector<CurvePoint> &map_fn,
-                 const std::vector<Point> &map) {
-  int prev_wp = -1;
-
-  while (point.s > map_fn[prev_wp + 1].s &&
-         (prev_wp < (int)(map_fn.size() - 1))) {
-    prev_wp++;
-  }
-
-  int wp2 = (prev_wp + 1) % map.size();
-  
-  double heading =
-      atan2((map[wp2].y - map[prev_wp].y), (map[wp2].x - map[prev_wp].x));
-  // the x,y,s along the segment
-  double seg_s = (point.s - map_fn[prev_wp].s);
-
-  double seg_x = map[prev_wp].x + seg_s * cos(heading);
-  double seg_y = map[prev_wp].y + seg_s * sin(heading);
-
-  double perp_heading = heading - pi() / 2;
-
-  double x = seg_x + point.d * cos(perp_heading);
-  double y = seg_y + point.d * sin(perp_heading);
-
-  return {x, y};
-}
-
-Point FromFrenetSmooth(const FrenetPoint &point,
-                       const std::vector<CurvePoint> &map_fn,
-                       const std::vector<Point> &map) {
-  long next_wp = 0;
-  
-  while (point.s > map_fn[next_wp].s && next_wp < map_fn.size()) {
-    next_wp++;
-  }
-  
-  std::vector<unsigned long> path;
-  if (next_wp > 1) {
-    path.push_back(next_wp-2);
-  }
-  if (next_wp > 0) {
-    path.push_back(next_wp-1);
-  }
-  path.push_back(next_wp);
-  
-  // TODO: the module would not work with spline
-  path.push_back((next_wp + 1) % map_fn.size());
-
-  std::vector<double> flattenedX(path.size(), 0);
-  std::vector<double> flattenedY(path.size(), 0);
-  std::vector<double> flattenedS(path.size(), 0);
-  std::vector<double> flattenedDx(path.size(), 0);
-  std::vector<double> flattenedDy(path.size(), 0);
-  
-  for (int i = 0; i < path.size(); ++i) {
-    flattenedX[i] = map[path[i]].x;
-    flattenedY[i] = map[path[i]].y;
-    flattenedS[i] = map_fn[path[i]].s;
-    flattenedDx[i] = map_fn[path[i]].dx;
-    flattenedDy[i] = map_fn[path[i]].dy;
-  }
-
-  tk::spline splineX;
-  splineX.set_points(flattenedS, flattenedX);
-  tk::spline splineY;
-  splineY.set_points(flattenedS, flattenedY);
-  tk::spline splineDx;
-  splineDx.set_points(flattenedS, flattenedDx);
-  tk::spline splineDy;
-  splineDy.set_points(flattenedS, flattenedDy);
-  
-  double x = splineX(point.s) + point.d * splineDx(point.s);
-  double y = splineY(point.s) + point.d * splineDy(point.s);
-
-  return {x, y};
-}
-
 Point Map::FromFrenet(const FrenetPoint &pt) const {
   if (!m_splinesReady) {
     throw std::runtime_error("Freeze() must be called before");
@@ -175,10 +97,6 @@ Point Map::FromFrenet(const FrenetPoint &pt) const {
   double x = m_splineX(pt.s) + pt.d * m_splineDx(pt.s);
   double y = m_splineY(pt.s) + pt.d * m_splineDy(pt.s);
   return {x, y};
-}
-
-Point Map::FromFrenetLinear(const FrenetPoint &pt) const {
-  return ::FromFrenet(pt, m_waypointsFn, m_waypointsXY);
 }
 
 std::vector<Point> Map::FromFrenet(const std::vector<FrenetPoint> &points) const {
