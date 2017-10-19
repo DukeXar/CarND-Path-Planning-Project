@@ -8,7 +8,7 @@
 
 class Decider {
 public:
-  Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds);
+  Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds, const Map & map);
 
   BestTrajectories ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCar> & sensors);
   
@@ -16,6 +16,8 @@ private:
   double m_horizonSeconds;
   double m_laneWidth;
   double m_minTrajectoryTimeSeconds;
+  const Map & m_map;
+
   int m_state;
   
   int m_followingCarId;

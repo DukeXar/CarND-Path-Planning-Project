@@ -31,6 +31,8 @@ class Map {
   const std::vector<CurvePoint> &get_waypoints_fn() { return m_waypointsFn; }
 
   Point FromFrenet(const FrenetPoint &pt) const;
+  Point FromFrenetLinear(const FrenetPoint &pt) const;
+  std::vector<Point> FromFrenet(const std::vector<FrenetPoint> &pt) const;
   FrenetPoint ToFrenet(const Car &car) const;
   int ClosestWaypoint(const Point &pt) const;
   

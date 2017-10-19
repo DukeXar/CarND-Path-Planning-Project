@@ -127,16 +127,17 @@ Point FromFrenetSmooth(const FrenetPoint &point,
     next_wp++;
   }
   
-  // TODO: when we just start, prev_point.x > next_point.x -> set_points fails
-  if (next_wp == 0) {
-    next_wp = 1;
+  std::vector<unsigned long> path;
+  if (next_wp > 1) {
+    path.push_back(next_wp-2);
   }
-
-  std::array<unsigned long, 3> path = {
-    next_wp > 0 ? next_wp-1 : map_fn.size()-1,
-    static_cast<unsigned long>(next_wp),
-    (next_wp+1) % map_fn.size()
-  };
+  if (next_wp > 0) {
+    path.push_back(next_wp-1);
+  }
+  path.push_back(next_wp);
+  
+  // TODO: the module would not work with spline
+  path.push_back((next_wp + 1) % map_fn.size());
 
   std::vector<double> flattenedX(path.size(), 0);
   std::vector<double> flattenedY(path.size(), 0);
@@ -170,6 +171,68 @@ Point FromFrenetSmooth(const FrenetPoint &point,
 
 Point Map::FromFrenet(const FrenetPoint &pt) const {
   return ::FromFrenetSmooth(pt, m_waypointsFn, m_waypointsXY);
+}
+
+Point Map::FromFrenetLinear(const FrenetPoint &pt) const {
+  return ::FromFrenet(pt, m_waypointsFn, m_waypointsXY);
+}
+
+std::vector<Point> Map::FromFrenet(const std::vector<FrenetPoint> &pt) const {
+  std::vector<Point> result;
+  result.reserve(pt.size());
+
+  long next_wp = 0;
+
+  size_t currPtIdx = 0;
+  while (currPtIdx < pt.size()) {
+    while (pt[currPtIdx].s > m_waypointsFn[next_wp].s && next_wp < m_waypointsFn.size()) {
+      next_wp++;
+    }
+
+    std::vector<unsigned long> path;
+    if (next_wp > 1) {
+      path.push_back(next_wp-2);
+    }
+    if (next_wp > 0) {
+      path.push_back(next_wp-1);
+    }
+    path.push_back(next_wp);
+    
+    // TODO: the module would not work with spline
+    path.push_back((next_wp + 1) % m_waypointsFn.size());
+
+    std::vector<double> flattenedX(path.size(), 0);
+    std::vector<double> flattenedY(path.size(), 0);
+    std::vector<double> flattenedS(path.size(), 0);
+    std::vector<double> flattenedDx(path.size(), 0);
+    std::vector<double> flattenedDy(path.size(), 0);
+    
+    for (int i = 0; i < path.size(); ++i) {
+      flattenedX[i] = m_waypointsXY[path[i]].x;
+      flattenedY[i] = m_waypointsXY[path[i]].y;
+      flattenedS[i] = m_waypointsFn[path[i]].s;
+      flattenedDx[i] = m_waypointsFn[path[i]].dx;
+      flattenedDy[i] = m_waypointsFn[path[i]].dy;
+    }
+    
+    tk::spline splineX;
+    splineX.set_points(flattenedS, flattenedX);
+    tk::spline splineY;
+    splineY.set_points(flattenedS, flattenedY);
+    tk::spline splineDx;
+    splineDx.set_points(flattenedS, flattenedDx);
+    tk::spline splineDy;
+    splineDy.set_points(flattenedS, flattenedDy);
+
+    while (currPtIdx < pt.size() && pt[currPtIdx].s <= m_waypointsFn[next_wp].s) {
+      double x = splineX(pt[currPtIdx].s) + pt[currPtIdx].d * splineDx(pt[currPtIdx].s);
+      double y = splineY(pt[currPtIdx].s) + pt[currPtIdx].d * splineDy(pt[currPtIdx].s);
+
+      result.push_back({x, y});
+      ++currPtIdx;
+    }
+  }
+  return result;
 }
 
 FrenetPoint Map::ToFrenet(const Car &car) const {
