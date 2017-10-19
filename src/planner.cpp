@@ -5,6 +5,7 @@
 #include <functional>
 #include <algorithm>
 #include <unordered_map>
+#include <chrono>
 #include "Dense"
 #include "map.h"
 #include "utils.h"
@@ -271,9 +272,11 @@ double GetMaxCartesianAccelerationImm(const PolyFunction & sTraj, const PolyFunc
   return maxAccSoFar;
 }
 
-double GetMaxCartesianAcceleration(const PolyFunction & sTraj, const PolyFunction & dTraj,
-                                   double targetTime, const Map & map) {
+std::pair<double, double> GetMaxCartesianAccelerationAndSpeed(const PolyFunction & sTraj, const PolyFunction & dTraj,
+                                                              double targetTime, const Map & map) {
   double maxAccSoFar = 0;
+  double maxSpeedSoFar = 0;
+
   // TODO: This is so slow
   //size_t totalIntervals = 100;
   //double intervalLength = targetTime / totalIntervals;
@@ -343,6 +346,8 @@ double GetMaxCartesianAcceleration(const PolyFunction & sTraj, const PolyFunctio
         
         prevAvgSpeed = avgSpeed;
         hasPrevAvgSpeed = true;
+        
+        maxSpeedSoFar = std::max(maxSpeedSoFar, avgSpeed);
 
         avgSpeedCount = 1;
         avgSpeedSum = speeds[i];
@@ -360,32 +365,39 @@ double GetMaxCartesianAcceleration(const PolyFunction & sTraj, const PolyFunctio
   }
   
 //  std::cout << "maxAccS=" << maxAccS << ", maxAcc=" << maxAccSoFar << "\n";
-  return maxAccSoFar;
+  return {maxAccSoFar, maxSpeedSoFar};
+}
+
+
+double PowerLimit(double x, double limit, double threshold) {
+  if (x > limit) {
+    return 1.0;
+  }
+  
+  if (x < threshold) {
+    return 0.0;
+  }
+  
+  //  double a = accLimit - threshold;
+  //  double k = accLimit / a;
+  //  return k * maxAccSoFar - accLimit;
+  
+  double res = (x - threshold) / (limit - threshold);
+  return std::pow(res, 7);
 }
 
 
 double CartesianAccelerationLimitCost(const PolyFunction & sTraj, const PolyFunction & dTraj,
-                                      double targetTime, double accLimit, const Map & map) {
+                                      double targetTime, double accLimit, double speedLimit, const Map & map) {
 
-  double maxAccSoFar = GetMaxCartesianAcceleration(sTraj, dTraj, targetTime, map);
+  auto result = GetMaxCartesianAccelerationAndSpeed(sTraj, dTraj, targetTime, map);
+  double maxAccSoFar = result.first;
+  double maxSpeedSoFar = result.second;
   
-  if (maxAccSoFar > accLimit) {
-    return 1.0;
-  }
+  double accCost = PowerLimit(maxAccSoFar, accLimit, 0.9 * accLimit);
+  double speedCost = PowerLimit(maxSpeedSoFar, speedLimit, 0.9 * speedLimit);
   
-  double percent = 0.9;
-  double threshold = accLimit * percent;
-  
-  if (maxAccSoFar < threshold) {
-    return 0.0;
-  }
-
-//  double a = accLimit - threshold;
-//  double k = accLimit / a;
-//  return k * maxAccSoFar - accLimit;
-  
-  double x = (maxAccSoFar - threshold) / (accLimit - threshold);
-  return std::pow(x, 7);
+  return (10 * accCost + speedCost) / 11;
 }
 
 double ClosenessToTargetSState(const PolyFunction & sTraj, const PolyFunction & dTraj,
@@ -466,9 +478,10 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
     return AccelerationLimitCost(sTraj, dTraj, targetTime, kMaxAccelerationMs2);
   };
   
-  const auto cartesianAccelerationLimit = [this](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
+  const auto cartesianAccelerationAndSpeedLimit = [this](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
     const double kMaxAccelerationMs2 = 10;
-    return CartesianAccelerationLimitCost(sTraj, dTraj, targetTime, kMaxAccelerationMs2, m_map);
+    const double kMaxSpeedMs = MiphToMs(50);
+    return CartesianAccelerationLimitCost(sTraj, dTraj, targetTime, kMaxAccelerationMs2, kMaxSpeedMs, m_map);
   };
   
   const auto speedLimit = [](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
@@ -534,16 +547,16 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
       WeightedFunctions weighted{
         {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
         {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
-        {50, std::bind(speedLimit, _1, _2, _3)},
+        //{50, std::bind(speedLimit, _1, _2, _3)},
         //{50, std::bind(accelerationLimit, _1, _2, _3)},
         {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)},
         {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, laneLeft, laneRight, _3)},
-        {80, std::bind(cartesianAccelerationLimit, _1, _2, _3)}
+        {80, std::bind(cartesianAccelerationAndSpeedLimit, _1, _2, _3)}
       };
 
       auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2, _3);
 
-      auto result = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, m_horizonSeconds * 3 + 20 * kTimeStep, kTimeStep, costFunction);
+      auto result = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, m_horizonSeconds * 3 + 30 * kTimeStep, kTimeStep, costFunction);
 //      double maxAcc = GetMaxCartesianAcceleration(result.s, result.d, result.time, m_map);
 //      std::cout << "maxAcc=" << maxAcc << std::endl;
       return result;
@@ -570,12 +583,12 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
       WeightedFunctions weighted{
         {30, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
         {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
-        {90, std::bind(speedLimit, _1, _2, _3)},
+        //{90, std::bind(speedLimit, _1, _2, _3)},
         //{200, std::bind(accelerationLimit, _1, _2, _3)},
         {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)},
         {300, std::bind(OutsideOfTheRoadPenalty, _1, _2, laneLeft, laneRight, _3)},
         {5, reactionTimePenalty},
-        {100, std::bind(cartesianAccelerationLimit, _1, _2, _3)}
+        {100, std::bind(cartesianAccelerationAndSpeedLimit, _1, _2, _3)}
       };
       
       auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2, _3);
@@ -602,12 +615,12 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
 
 namespace {
   const double kHorizonSeconds = 5;
-  const double kReplanPeriodSeconds = 1;
-  const int kPointsToKeep = 0;
+  const double kReplanPeriodSeconds = 0.75;
+  const int kPointsToKeep = 10;
   
   // TODO: it is possible that a generated trajectory would end earlier than we replan, it is not supported now, this is why minTime
   // is set to be higher than replan frequency.
-  const double kMinTrajectoryTimeSeconds = kReplanPeriodSeconds * 2.0;
+  const double kMinTrajectoryTimeSeconds = kReplanPeriodSeconds * 3.0;
 } // namespace
 
 Planner::Planner(const Map& map, double updatePeriodSeconds, double laneWidthMeters)
@@ -665,7 +678,11 @@ std::vector<Point> Planner::Update(const CarEx& car,
     startState.d.acc = m_plannedTrajectories.d.Eval3(nextPosIdx * m_updatePeriod);
   }
 
+  auto start = std::chrono::high_resolution_clock::now();
   auto bestTrajectory = m_decider.ChooseBestTrajectory(startState, sensors);
+  using sec = std::chrono::duration<double>;
+  auto delta = std::chrono::duration_cast<sec>(std::chrono::high_resolution_clock::now() - start);
+  std::cout << "Delta=" << delta.count() << std::endl;
 
   std::vector<Point> planned;
   if (continueTrajectory && (currentPosIdx + kPointsToKeep - 1 < m_plannedPath.size())) {

@@ -168,70 +168,31 @@ Point FromFrenetSmooth(const FrenetPoint &point,
   return {x, y};
 }
 
-
 Point Map::FromFrenet(const FrenetPoint &pt) const {
-  return ::FromFrenetSmooth(pt, m_waypointsFn, m_waypointsXY);
+  if (!m_splinesReady) {
+    throw std::runtime_error("Freeze() must be called before");
+  }
+  double x = m_splineX(pt.s) + pt.d * m_splineDx(pt.s);
+  double y = m_splineY(pt.s) + pt.d * m_splineDy(pt.s);
+  return {x, y};
 }
 
 Point Map::FromFrenetLinear(const FrenetPoint &pt) const {
   return ::FromFrenet(pt, m_waypointsFn, m_waypointsXY);
 }
 
-std::vector<Point> Map::FromFrenet(const std::vector<FrenetPoint> &pt) const {
-  std::vector<Point> result;
-  result.reserve(pt.size());
-
-  long next_wp = 0;
-
-  size_t currPtIdx = 0;
-  while (currPtIdx < pt.size()) {
-    while (pt[currPtIdx].s > m_waypointsFn[next_wp].s && next_wp < m_waypointsFn.size()) {
-      next_wp++;
-    }
-
-    std::vector<unsigned long> path;
-    if (next_wp > 1) {
-      path.push_back(next_wp-2);
-    }
-    if (next_wp > 0) {
-      path.push_back(next_wp-1);
-    }
-    path.push_back(next_wp);
-    
-    // TODO: the module would not work with spline
-    path.push_back((next_wp + 1) % m_waypointsFn.size());
-
-    std::vector<double> flattenedX(path.size(), 0);
-    std::vector<double> flattenedY(path.size(), 0);
-    std::vector<double> flattenedS(path.size(), 0);
-    std::vector<double> flattenedDx(path.size(), 0);
-    std::vector<double> flattenedDy(path.size(), 0);
-    
-    for (int i = 0; i < path.size(); ++i) {
-      flattenedX[i] = m_waypointsXY[path[i]].x;
-      flattenedY[i] = m_waypointsXY[path[i]].y;
-      flattenedS[i] = m_waypointsFn[path[i]].s;
-      flattenedDx[i] = m_waypointsFn[path[i]].dx;
-      flattenedDy[i] = m_waypointsFn[path[i]].dy;
-    }
-    
-    tk::spline splineX;
-    splineX.set_points(flattenedS, flattenedX);
-    tk::spline splineY;
-    splineY.set_points(flattenedS, flattenedY);
-    tk::spline splineDx;
-    splineDx.set_points(flattenedS, flattenedDx);
-    tk::spline splineDy;
-    splineDy.set_points(flattenedS, flattenedDy);
-
-    while (currPtIdx < pt.size() && pt[currPtIdx].s <= m_waypointsFn[next_wp].s) {
-      double x = splineX(pt[currPtIdx].s) + pt[currPtIdx].d * splineDx(pt[currPtIdx].s);
-      double y = splineY(pt[currPtIdx].s) + pt[currPtIdx].d * splineDy(pt[currPtIdx].s);
-
-      result.push_back({x, y});
-      ++currPtIdx;
-    }
+std::vector<Point> Map::FromFrenet(const std::vector<FrenetPoint> &points) const {
+  if (!m_splinesReady) {
+    throw std::runtime_error("Freeze() must be called before");
   }
+
+  std::vector<Point> result;
+  result.reserve(points.size());
+  
+  for (const auto & pt : points) {
+    result.push_back(FromFrenet(pt));
+  }
+  
   return result;
 }
 
@@ -244,6 +205,7 @@ int Map::ClosestWaypoint(const Point &pt) const {
 }
 
 void Map::AddWaypoint(const Point &pt, const CurvePoint &cp) {
+  m_splinesReady = false;
   m_waypointsXY.push_back(pt);
   m_waypointsFn.push_back(cp);
 }
@@ -259,4 +221,31 @@ void ReadMap(const std::string &filename, Map &map) {
     iss >> cp.s >> cp.dx >> cp.dy;
     map.AddWaypoint(pt, cp);
   }
+  map.Freeze();
 }
+
+void Map::Freeze() {
+  const size_t sz = m_waypointsXY.size();
+
+  std::vector<double> flattenedX(sz, 0);
+  std::vector<double> flattenedY(sz, 0);
+  std::vector<double> flattenedS(sz, 0);
+  std::vector<double> flattenedDx(sz, 0);
+  std::vector<double> flattenedDy(sz, 0);
+
+  for (int i = 0; i < sz; ++i) {
+    flattenedX[i] = m_waypointsXY[i].x;
+    flattenedY[i] = m_waypointsXY[i].y;
+    flattenedS[i] = m_waypointsFn[i].s;
+    flattenedDx[i] = m_waypointsFn[i].dx;
+    flattenedDy[i] = m_waypointsFn[i].dy;
+  }
+
+  m_splineX.set_points(flattenedS, flattenedX);
+  m_splineY.set_points(flattenedS, flattenedY);
+  m_splineDx.set_points(flattenedS, flattenedDx);
+  m_splineDy.set_points(flattenedS, flattenedDy);
+  
+  m_splinesReady = true;
+}
+
