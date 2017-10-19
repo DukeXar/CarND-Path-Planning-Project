@@ -99,7 +99,7 @@ BestTrajectories FindBestTrajectories(const State2D & start,
                                       double timeStep,
                                       const CostFunction & costFunction) {
   
-  const int kSamples = 10;
+  const int kSamples = 20;
   
   std::vector<Goal2D> goals;
   

@@ -83,15 +83,15 @@ World::World(const std::vector<OtherCar> & sensors, double laneWidth): m_laneWid
     });
   }
 
-  std::cout << "Cars by lane: \n";
-  for (const auto & laneAndCars : m_cars) {
-    std::cout << laneAndCars.first << "=[";
-    for (const auto & car : laneAndCars.second) {
-      std::cout << car.id << "(" << car.fnPos.s << ")" << ",";
-    }
-    std::cout << "]\n";
-  }
-  std::cout << std::endl;
+//  std::cout << "Cars by lane: \n";
+//  for (const auto & laneAndCars : m_cars) {
+//    std::cout << laneAndCars.first << "=[";
+//    for (const auto & car : laneAndCars.second) {
+//      std::cout << car.id << "(" << car.fnPos.s << ")" << ",";
+//    }
+//    std::cout << "]\n";
+//  }
+//  std::cout << std::endl;
 }
 
 bool World::GetClosestCar(int laneIdx, double s, OtherCar * result) const {
@@ -371,7 +371,7 @@ std::pair<double, double> GetMaxCartesianAccelerationAndSpeed(const PolyFunction
 
 double PowerLimit(double x, double limit, double threshold) {
   if (x > limit) {
-    return 1.0;
+    return 100.0;
   }
   
   if (x < threshold) {
@@ -501,14 +501,14 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
   switch (m_state) {
     case kKeepSpeedState: {
       OtherCar closestCar;
-      if (world.GetClosestCar(kCurrentLaneIdx, startState.s.s, &closestCar)) {
-        double distance = closestCar.fnPos.s - startState.s.s;
-        std::cout << "Found closest car id=" << closestCar.id << ", s=" << closestCar.fnPos.s << ", my s=" << startState.s.s << std::endl;
-        if (distance <= kOtherVehicleFollowDistance) {
-          m_state = kFollowVehicleState;
-          m_followingCarId = closestCar.id;
-        }
-      }
+//      if (world.GetClosestCar(kCurrentLaneIdx, startState.s.s, &closestCar)) {
+//        double distance = closestCar.fnPos.s - startState.s.s;
+//        std::cout << "Found closest car id=" << closestCar.id << ", s=" << closestCar.fnPos.s << ", my s=" << startState.s.s << std::endl;
+//        if (distance <= kOtherVehicleFollowDistance) {
+//          m_state = kFollowVehicleState;
+//          m_followingCarId = closestCar.id;
+//        }
+//      }
     } break;
     case kFollowVehicleState: {
       OtherCar closestCar;
@@ -547,16 +547,14 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
       WeightedFunctions weighted{
         {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
         {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
-        //{50, std::bind(speedLimit, _1, _2, _3)},
-        //{50, std::bind(accelerationLimit, _1, _2, _3)},
         {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)},
         {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, laneLeft, laneRight, _3)},
-        {80, std::bind(cartesianAccelerationAndSpeedLimit, _1, _2, _3)}
+        {20, std::bind(cartesianAccelerationAndSpeedLimit, _1, _2, _3)}
       };
 
       auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2, _3);
 
-      auto result = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, m_horizonSeconds * 3 + 30 * kTimeStep, kTimeStep, costFunction);
+      auto result = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, m_horizonSeconds * 3 + 10, 1, costFunction);
 //      double maxAcc = GetMaxCartesianAcceleration(result.s, result.d, result.time, m_map);
 //      std::cout << "maxAcc=" << maxAcc << std::endl;
       return result;
@@ -615,12 +613,12 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
 
 namespace {
   const double kHorizonSeconds = 5;
-  const double kReplanPeriodSeconds = 0.75;
-  const int kPointsToKeep = 10;
+  const double kReplanPeriodSeconds = 1;
+  const int kPointsToKeep = 10; // which is about 0.2 seconds
   
   // TODO: it is possible that a generated trajectory would end earlier than we replan, it is not supported now, this is why minTime
   // is set to be higher than replan frequency.
-  const double kMinTrajectoryTimeSeconds = kReplanPeriodSeconds * 3.0;
+  const double kMinTrajectoryTimeSeconds = kReplanPeriodSeconds * 2.0;
 } // namespace
 
 Planner::Planner(const Map& map, double updatePeriodSeconds, double laneWidthMeters)
