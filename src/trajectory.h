@@ -69,4 +69,5 @@ BestTrajectories FindBestTrajectories(const State2D & start,
                                       double minTime,
                                       double targetTime,
                                       double timeStep,
+                                      double samplesCount,
                                       const CostFunction & costFunction);

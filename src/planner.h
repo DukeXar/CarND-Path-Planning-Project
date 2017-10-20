@@ -22,6 +22,7 @@ private:
   
   int m_followingCarId;
   int m_targetLane;
+  double m_targetSpeed;
   int m_updateNumber;
 };
 

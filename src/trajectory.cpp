@@ -97,9 +97,8 @@ BestTrajectories FindBestTrajectories(const State2D & start,
                                       double minTime,
                                       double maxTime,
                                       double timeStep,
+                                      double samplesCount,
                                       const CostFunction & costFunction) {
-  
-  const int kSamples = 20;
   
   std::vector<Goal2D> goals;
   
@@ -108,7 +107,7 @@ BestTrajectories FindBestTrajectories(const State2D & start,
     State2D currTarget = target.At(currTime);
     goals.push_back({currTarget, currTime});
     
-    for (int sample = 0; sample < kSamples; ++sample) {
+    for (int sample = 0; sample < samplesCount; ++sample) {
       State2D perturbedTarget = PerturbTarget(currTarget);
       // Ensure we don't move backwards.
       if (perturbedTarget.s.s > start.s.s) {
