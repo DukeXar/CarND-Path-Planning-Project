@@ -461,14 +461,16 @@ const int kChangingLaneRightState = 3;
 
 Decider::Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds, const Map & map)
 : m_horizonSeconds(horizonSeconds), m_laneWidth(laneWidth), m_minTrajectoryTimeSeconds(minTrajectoryTimeSeconds),
-m_map(map), m_state(kKeepSpeedState), m_followingCarId(-1) {
+m_map(map), m_state(kKeepSpeedState), m_followingCarId(-1), m_targetLane(-1), m_updateNumber(0) {
 }
 
 BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCar> & sensors) {
   const double kTimeStep = 0.5;
+
+  ++m_updateNumber;
   
   const auto outsideOfTheRoadPenalty = [this](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
-    return OutsideOfTheRoadPenalty(sTraj, dTraj, 0 + m_laneWidth / 4, 3 * m_laneWidth - m_laneWidth / 4, targetTime);
+    return OutsideOfTheRoadPenalty(sTraj, dTraj, 0 + m_laneWidth / 8, 3 * m_laneWidth - m_laneWidth / 8, targetTime);
   };
   
   // README: Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 50 m/s^3.
@@ -488,6 +490,10 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
     return SpeedLimitCost(sTraj, dTraj, targetTime, MiphToMs(50));
   };
 
+  auto reactionTimePenalty = [](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
+    return targetTime;
+  };
+
   World world(sensors, m_laneWidth);
 
   using std::placeholders::_1;
@@ -498,6 +504,10 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
   const double kCurrentLaneD = CurrentLaneToDPos(kCurrentLaneIdx, m_laneWidth);
   const double kOtherVehicleFollowDistance = 100;
   
+  if (m_targetLane == -1) {
+    m_targetLane = kCurrentLaneIdx;
+  }
+
   switch (m_state) {
     case kKeepSpeedState: {
       OtherCar closestCar;
@@ -509,6 +519,10 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
 //          m_followingCarId = closestCar.id;
 //        }
 //      }
+      if (m_updateNumber == 3) {
+        m_targetLane = m_targetLane + 1;
+        m_state = kChangingLaneRightState;
+      }
     } break;
     case kFollowVehicleState: {
       OtherCar closestCar;
@@ -525,7 +539,18 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
             m_followingCarId = closestCar.id;
           }
         }
-
+      }
+    } break;
+    case kChangingLaneRightState: {
+      if (kCurrentLaneIdx == m_targetLane) {
+        std::cout << "Reached the target (right) lane" << std::endl;
+        m_state = kKeepSpeedState;
+      }
+    } break;
+    case kChangingLaneLeftState: {
+      if (kCurrentLaneIdx == m_targetLane) {
+        std::cout << "Reached the target (left) lane" << std::endl;
+        m_state = kKeepSpeedState;
       }
     } break;
     default:
@@ -572,10 +597,6 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
       
       ConstantSpeedTarget target(otherCarSpeedModulo, otherCar.fnPos.s - distanceToKeep, State{kCurrentLaneD, 0, 0});
       
-      auto reactionTimePenalty = [](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
-        return targetTime;
-      };
-      
       const double laneLeft = kCurrentLaneD - m_laneWidth/2 + m_laneWidth * 1/8;
       const double laneRight = kCurrentLaneD + m_laneWidth/2 - m_laneWidth * 1/8;
       WeightedFunctions weighted{
@@ -598,7 +619,35 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
       
     } break;
     case kChangingLaneRightState: {
+      std::cout << "Changing lane right" << std::endl;
       
+      // TODO: this should be target vehicle or lane speed, or current speed if no vehicles in the target lane
+      const double kTargetSpeed = MiphToMs(46);
+
+      double targetLaneD = CurrentLaneToDPos(m_targetLane, m_laneWidth);
+
+      ConstantSpeedTarget target(kTargetSpeed, startState.s.s, State{targetLaneD, 0, 0});
+      
+      const double laneLeft = kCurrentLaneD - m_laneWidth/16;
+      const double laneRight = targetLaneD + m_laneWidth/16;
+      
+      WeightedFunctions weighted{
+        {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
+        {10, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
+        //{1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)},
+        {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, laneLeft, laneRight, _3)},
+        {20, std::bind(cartesianAccelerationAndSpeedLimit, _1, _2, _3)},
+      {0, reactionTimePenalty}
+      };
+      
+      auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2, _3);
+      
+      auto result = FindBestTrajectories(startState, target, m_minTrajectoryTimeSeconds, m_horizonSeconds * 2 + 10, 0.5, costFunction);
+      //      double maxAcc = GetMaxCartesianAcceleration(result.s, result.d, result.time, m_map);
+      //      std::cout << "maxAcc=" << maxAcc << std::endl;
+      
+      m_state = kChangingLaneRightState;
+      return result;
     } break;
     default:
       throw std::runtime_error("Not implemented");
@@ -612,13 +661,14 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 namespace {
-  const double kHorizonSeconds = 5;
-  const double kReplanPeriodSeconds = 1;
-  const int kPointsToKeep = 10; // which is about 0.2 seconds
+  const double kHorizonSeconds = 5; // ???
+  const double kReplanPeriodSeconds = 0.5; // every X seconds we replan, there must be at least 50 points left in the path (below)
+  const double kAlgorithmLatencySeconds = 1;
+  const int kPointsToKeep = kAlgorithmLatencySeconds / 0.02; // 1 second latency of the algorithm, 50 points
   
   // TODO: it is possible that a generated trajectory would end earlier than we replan, it is not supported now, this is why minTime
   // is set to be higher than replan frequency.
-  const double kMinTrajectoryTimeSeconds = kReplanPeriodSeconds * 2.0;
+  const double kMinTrajectoryTimeSeconds = kAlgorithmLatencySeconds + kReplanPeriodSeconds;
 } // namespace
 
 Planner::Planner(const Map& map, double updatePeriodSeconds, double laneWidthMeters)

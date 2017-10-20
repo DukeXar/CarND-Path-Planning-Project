@@ -21,6 +21,8 @@ private:
   int m_state;
   
   int m_followingCarId;
+  int m_targetLane;
+  int m_updateNumber;
 };
 
 class Planner {
