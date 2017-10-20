@@ -212,67 +212,6 @@ double AccelerationLimitCost(const PolyFunction & sTraj, const PolyFunction & dT
   return k * maxAccSoFar - accLimit;
 }
 
-double GetMaxCartesianAccelerationImm(const PolyFunction & sTraj, const PolyFunction & dTraj,
-                                      double targetTime, const Map & map) {
-  // TODO this is a copy-paste from speed limit
-  double maxAccSoFar = 0;
-  // TODO: This is so slow
-  //size_t totalIntervals = 100;
-  //double intervalLength = targetTime / totalIntervals;
-  double intervalLength = 0.02;
-  int totalIntervals = targetTime / intervalLength;
-  
-  std::vector<FrenetPoint> fnPoints;
-  for (int i = 0; i < totalIntervals; ++i) {
-    fnPoints.push_back({sTraj.Eval(i*intervalLength), dTraj.Eval(i*intervalLength)});
-  }
-  std::vector<Point> points = map.FromFrenet(fnPoints);
-  
-  double prevV = 0;
-  double prevS = 0;
-  
-  double maxAccS = 0;
-  double prevVS = 0;
-  double prevSS = 0;
-  
-  for (int i = 1; i < totalIntervals; ++i) {
-    double distance = Distance(points[i-1].x, points[i-1].y, points[i].x, points[i].y);
-    double v = distance / intervalLength;
-    
-    double distanceS = sTraj.Eval(i*intervalLength) - sTraj.Eval((i-1) * intervalLength);
-    double vS = distanceS / intervalLength;
-
-    if (i > 1) {
-      Point v1{points[i].x - points[i-1].x, points[i].y - points[i-1].y};
-      Point v2{points[i-1].x - points[i-2].x, points[i-1].y - points[i-2].y};
-
-// This should be same as below.
-//      double cosPhi = (v1.x * v2.x + v1.y * v2.y) / (prevS * distance);
-//      double turnRad = distance / sqrt(2 * (1 - cosPhi));
-//      double normalAcc = v * v / turnRad;
-
-      double cosPhi = (v1.x * v2.x + v1.y * v2.y) / (Distance(0, 0, v2.x, v2.y) * Distance(0, 0, v1.x, v1.y));
-      Point v3{points[i].x - points[i-2].x, points[i].y - points[i-2].y};
-      double curve = 2 * sqrt(1 - cosPhi * cosPhi) / Distance(0, 0, v3.x, v3.y);
-      double normalAcc = v * v * curve;
-
-      double tangAcc = (v - prevV) / intervalLength;
-      double fullAcc = sqrt(normalAcc * normalAcc + tangAcc * tangAcc);
-      maxAccSoFar = std::max(maxAccSoFar, fullAcc);
-      double acc = sTraj.Eval3((i-1) * intervalLength);
-      maxAccS = std::max(maxAccS, acc);
-      double accS = (vS - prevVS) / intervalLength;
-    }
-    
-    prevV = v;
-    prevS = distance;
-    prevVS = vS;
-  }
-
-  std::cout << "maxAccS=" << maxAccS << ", maxAcc=" << maxAccSoFar << "\n";
-  return maxAccSoFar;
-}
-
 std::pair<double, double> GetMaxCartesianAccelerationAndSpeed(const PolyFunction & sTraj, const PolyFunction & dTraj,
                                                               double targetTime, const Map & map) {
   double maxAccSoFar = 0;
