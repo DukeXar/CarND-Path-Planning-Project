@@ -1,12 +1,12 @@
 #include "map.h"
 
+#include <array>
 #include <cmath>
 #include <fstream>
-#include <sstream>
 #include <iostream>
-#include <array>
-#include "utils.h"
+#include <sstream>
 #include "spline_utils.h"
+#include "utils.h"
 
 double Distance(double x1, double y1, double x2, double y2) {
   return sqrt(static_cast<long double>(x2 - x1) * (x2 - x1) +
@@ -99,18 +99,19 @@ Point Map::FromFrenet(const FrenetPoint &pt) const {
   return {x, y};
 }
 
-std::vector<Point> Map::FromFrenet(const std::vector<FrenetPoint> &points) const {
+std::vector<Point> Map::FromFrenet(
+    const std::vector<FrenetPoint> &points) const {
   if (!m_splinesReady) {
     throw std::runtime_error("Freeze() must be called before");
   }
 
   std::vector<Point> result;
   result.reserve(points.size());
-  
-  for (const auto & pt : points) {
+
+  for (const auto &pt : points) {
     result.push_back(FromFrenet(pt));
   }
-  
+
   return result;
 }
 
@@ -163,7 +164,6 @@ void Map::Freeze() {
   m_splineY.set_points(flattenedS, flattenedY);
   m_splineDx.set_points(flattenedS, flattenedDx);
   m_splineDy.set_points(flattenedS, flattenedDy);
-  
+
   m_splinesReady = true;
 }
-

@@ -16,7 +16,6 @@
         "cwctype": "cpp",
         "geometry": "cpp",
         "cmakeccompilerid.c": "cpp",
-        "C_Cpp.intelliSenseEngine": "Default",
         "alignedvector3": "cpp",
         "random": "cpp",
         "type_traits": "cpp",
