@@ -74,9 +74,11 @@ private:
 World::World(const std::vector<OtherCar> & sensors, double laneWidth): m_laneWidth(laneWidth) {
   for (const auto & car : sensors) {
     int lane = DPosToCurrentLane(car.fnPos.d, m_laneWidth);
-//    std::cout << "lane=" << lane << ", d=" << car.fnPos.d << ", s=" << car.fnPos.s << std::endl;
-    m_cars[lane].push_back(car);
-    m_byId[car.id] = car;
+    if (lane > 0) {
+      m_cars[lane].push_back(car);
+      m_byId[car.id] = car;
+//      std::cout << "lane=" << lane << ", d=" << car.fnPos.d << ", s=" << car.fnPos.s << std::endl;
+    }
   }
   
   for (auto & laneAndCars : m_cars) {
@@ -433,7 +435,7 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
 
   const int kCurrentLaneIdx = DPosToCurrentLane(startState.d.s, m_laneWidth);
   const double kCurrentLaneD = CurrentLaneToDPos(kCurrentLaneIdx, m_laneWidth);
-  const double kOtherVehicleFollowDistance = 100;
+  const double kOtherVehicleFollowDistance = 30; // TODO: should not it be possible to follow a vehicle from far?
   
   if (m_targetLane == -1) {
     m_targetLane = kCurrentLaneIdx;
@@ -555,7 +557,7 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
         //{200, std::bind(accelerationLimit, _1, _2, _3)},
         {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)},
         {300, std::bind(OutsideOfTheRoadPenalty, _1, _2, laneLeft, laneRight, _3)},
-        {5, reactionTimePenalty},
+        //{5, reactionTimePenalty},
         {300, std::bind(cartesianAccelerationAndSpeedLimit, _1, _2, _3)}
       };
       
