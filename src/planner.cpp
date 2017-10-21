@@ -11,6 +11,11 @@
 #include "utils.h"
 
 
+using std::placeholders::_1;
+using std::placeholders::_2;
+using std::placeholders::_3;
+
+
 int DPosToCurrentLane(double d, double laneWidth) {
   return d / laneWidth;
 }
@@ -36,9 +41,14 @@ State2D FixedTarget::At(double time) const {
 
 class ConstantSpeedTarget : public Target {
 public:
-  explicit ConstantSpeedTarget(double speed, double startS, const State & stateD, double distance = 0, double latency = 0)
-  : m_speed(speed), m_startS(startS), m_stateD(stateD), m_distance(distance), m_latency(latency) {}
-  
+  explicit ConstantSpeedTarget(double speed,
+                               double startS,
+                               const State & stateD,
+                               double distance = 0,
+                               double latency = 0):
+  m_speed(speed), m_startS(startS), m_stateD(stateD), m_distance(distance), m_latency(latency)
+  {}
+
   virtual State2D At(double time) const override;
   
 private:
@@ -58,48 +68,35 @@ State2D ConstantSpeedTarget::At(double time) const {
 }
 
 
-class World {
-public:
-  World(const std::vector<OtherCar> & sensors, double laneWidth);
-  
-  bool GetClosestCar(int laneIdx, double s, OtherCar * result) const;
-  OtherCar GetCarById(int id) const;
-  
-private:
-  double m_laneWidth;
-  std::unordered_map<int, std::vector<OtherCar>> m_cars;
-  std::unordered_map<int, OtherCar> m_byId;
-};
-
-World::World(const std::vector<OtherCar> & sensors, double laneWidth): m_laneWidth(laneWidth) {
+WorldSnapshot::WorldSnapshot(const std::vector<OtherCar> & sensors, double laneWidth): m_laneWidth(laneWidth) {
   for (const auto & car : sensors) {
-    int lane = DPosToCurrentLane(car.fnPos.d, m_laneWidth);
+    int lane = DPosToCurrentLane(car.fnPos.d, laneWidth);
     if (lane > 0) {
-      m_cars[lane].push_back(car);
+      m_cars[lane].push_back(car.id);
       m_byId[car.id] = car;
-//      std::cout << "lane=" << lane << ", d=" << car.fnPos.d << ", s=" << car.fnPos.s << std::endl;
+      //      std::cout << "lane=" << lane << ", d=" << car.fnPos.d << ", s=" << car.fnPos.s << std::endl;
     }
   }
   
   for (auto & laneAndCars : m_cars) {
-    std::sort(laneAndCars.second.begin(), laneAndCars.second.end(), [](const OtherCar & c1, const OtherCar & c2) {
-      return c1.fnPos.s < c2.fnPos.s;
+    std::sort(laneAndCars.second.begin(), laneAndCars.second.end(), [this](int id1, int id2) {
+      return m_byId.find(id1)->second.fnPos.s < m_byId.find(id2)->second.fnPos.s;
     });
   }
-
-//  std::cout << "Cars by lane: \n";
-//  for (const auto & laneAndCars : m_cars) {
-//    std::cout << laneAndCars.first << "=[";
-//    for (const auto & car : laneAndCars.second) {
-//      double v = std::sqrt(car.speed.x * car.speed.x + car.speed.y * car.speed.y);
-//      std::cout << car.id << "(s=" << car.fnPos.s << ", v=" << v << ")" << ",";
-//    }
-//    std::cout << "]\n";
-//  }
-//  std::cout << std::endl;
+  
+  //  std::cout << "Cars by lane: \n";
+  //  for (const auto & laneAndCars : m_cars) {
+  //    std::cout << laneAndCars.first << "=[";
+  //    for (const auto & car : laneAndCars.second) {
+  //      double v = std::sqrt(car.speed.x * car.speed.x + car.speed.y * car.speed.y);
+  //      std::cout << car.id << "(s=" << car.fnPos.s << ", v=" << v << ")" << ",";
+  //    }
+  //    std::cout << "]\n";
+  //  }
+  //  std::cout << std::endl;
 }
 
-bool World::GetClosestCar(int laneIdx, double s, OtherCar * result) const {
+bool WorldSnapshot::GetClosestCar(int laneIdx, double s, OtherCar * result) const {
   auto pos = m_cars.find(laneIdx);
   if (pos == m_cars.end()) {
     return false;
@@ -107,24 +104,25 @@ bool World::GetClosestCar(int laneIdx, double s, OtherCar * result) const {
   
   const auto & carsInLane = pos->second;
   
-  const OtherCar example{0, {0, 0}, {0, 0}, {s, 0}};
+  const OtherCar example{0, 0, {s, 0}};
   auto lb = std::lower_bound(carsInLane.begin(), carsInLane.end(), example,
-                             [](const OtherCar & c1, const OtherCar & c2) {
-    return c1.fnPos.s < c2.fnPos.s;
-  });
+                             [this](int id1, const OtherCar & c2) {
+                               const OtherCar & c1 = m_byId.find(id1)->second;
+                               return c1.fnPos.s < c2.fnPos.s;
+                             });
   
   if (lb == carsInLane.end()) {
     return false;
   }
   
   if (result) {
-    *result = *lb;
+    *result = m_byId.find(*lb)->second;
   }
-
+  
   return true;
 }
 
-OtherCar World::GetCarById(int id) const {
+OtherCar WorldSnapshot::GetCarById(int id) const {
   auto pos = m_byId.find(id);
   if (pos == m_byId.end()) {
     throw std::runtime_error("Not found");
@@ -132,13 +130,43 @@ OtherCar World::GetCarById(int id) const {
   return pos->second;
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
+std::vector<OtherCar> SensorsToCars(const std::vector<OtherCarSensor> & sensors) {
+  std::vector<OtherCar> result;
+  for (const auto & sensor : sensors) {
+    double speed = std::sqrt(sensor.speed.x * sensor.speed.x + sensor.speed.y * sensor.speed.y);
+    OtherCar car{sensor.id, speed, sensor.fnPos};
+    result.push_back(car);
+  }
+  return result;
+}
 
+World::World(const std::vector<OtherCarSensor> & sensors, double laneWidth): m_laneWidth(laneWidth) {
+  WorldSnapshot current(SensorsToCars(sensors), m_laneWidth);
+  for (const auto & idAndCar : current.GetAllCars()) {
+    double latency = 0;
+    const auto & car = idAndCar.second;
+    const auto dstate = State{car.fnPos.d, 0, 0};
+    m_models[car.id] = std::unique_ptr<Target>(new ConstantSpeedTarget(car.speed, car.fnPos.s, dstate, 0, latency));
+  }
+}
+
+WorldSnapshot World::Simulate(double time) {
+  std::vector<OtherCar> cars;
+  for (auto & idAndModel : m_models) {
+    auto state = idAndModel.second->At(time);
+    OtherCar car{idAndModel.first, state.s.v, FrenetPoint{state.s.s, state.d.s}};
+    cars.push_back(car);
+  }
+  return WorldSnapshot(cars, m_laneWidth);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 typedef std::vector<std::pair<double, CostFunction>> WeightedFunctions;
 
 double WeightedCostFunction(const WeightedFunctions & weigtedFunctions,
-                            const PolyFunction & sTraj, const PolyFunction & dTraj,
+                            const PolyFunction & sTraj,
+                            const PolyFunction & dTraj,
                             double targetTime) {
   double result = 0;
   for (const auto & wf : weigtedFunctions) {
@@ -147,7 +175,9 @@ double WeightedCostFunction(const WeightedFunctions & weigtedFunctions,
   return result;
 }
 
-double AllGoodFunction(const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
+double AllGoodFunction(const PolyFunction & sTraj,
+                       const PolyFunction & dTraj,
+                       double targetTime) {
   return 1.0;
 }
 
@@ -190,8 +220,10 @@ double SpeedLimitCost(const PolyFunction & sTraj, const PolyFunction & dTraj,
   return std::pow(x, 7);
 }
 
-double AccelerationLimitCost(const PolyFunction & sTraj, const PolyFunction & dTraj,
-                             double targetTime, double accLimit) {
+double AccelerationLimitCost(const PolyFunction & sTraj,
+                             const PolyFunction & dTraj,
+                             double targetTime,
+                             double accLimit) {
   // TODO this is a copy-paste from speed limit
   double maxAccSoFar = 0;
   size_t totalIntervals = 100;
@@ -397,30 +429,111 @@ double OutsideOfTheRoadPenalty(const PolyFunction & sTraj, const PolyFunction & 
 //
 //};
 
+// README: Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 50 m/s^3.
+const double kMaxAccelerationMs2 = 10;
+const double kMaxSpeedMs = MiphToMs(50);
+const double kOtherVehicleMonitorDistance = 50; // 100 was too much
+
+
 const int kKeepSpeedState = 0;
 const int kFollowVehicleState = 1;
 const int kChangingLaneLeftState = 2;
 const int kChangingLaneRightState = 3;
 
-Decider::Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds, double latencySeconds, const Map & map)
-: m_horizonSeconds(horizonSeconds), m_laneWidth(laneWidth), m_minTrajectoryTimeSeconds(minTrajectoryTimeSeconds),
-m_latencySeconds(latencySeconds), m_map(map), m_state(kKeepSpeedState),
-m_followingCarId(-1), m_targetLane(-1), m_targetSpeed(0), m_updateNumber(0) {
+Decider::Decider(double horizonSeconds,
+                 double laneWidth,
+                 double minTrajectoryTimeSeconds,
+                 double latencySeconds,
+                 const Map & map):
+  m_horizonSeconds(horizonSeconds),
+  m_laneWidth(laneWidth),
+  m_minTrajectoryTimeSeconds(minTrajectoryTimeSeconds),
+  m_latencySeconds(latencySeconds),
+  m_map(map),
+  m_state(kKeepSpeedState),
+  m_followingCarId(-1),
+  m_currentLane(-1),
+  m_targetLane(-1),
+  m_targetSpeed(0),
+  m_updateNumber(0) {
 }
 
-BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCar> & sensors) {
-  // README: Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 50 m/s^3.
-  const double kMaxAccelerationMs2 = 10;
-  const double kMaxSpeedMs = MiphToMs(50);
+BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D &startState,
+                                                    int targetLane,
+                                                    double targetSpeed,
+                                                    World &world) {
+
+  const double safeLaneOffset = m_laneWidth / 2 - m_laneWidth / 8;
+  const bool switchingToRight = targetLane > m_currentLane;
+  const double targetLaneD = CurrentLaneToDPos(targetLane, m_laneWidth);
+  const double currentLaneD = CurrentLaneToDPos(m_currentLane, m_laneWidth);
   
+  double rightBoundary;
+  double leftBoundary;
+  if (switchingToRight) {
+    leftBoundary = currentLaneD - safeLaneOffset;
+    rightBoundary = targetLaneD + safeLaneOffset;
+  } else {
+    leftBoundary = targetLaneD - safeLaneOffset;
+    rightBoundary = currentLaneD + safeLaneOffset;
+  }
+
+  ConstantSpeedTarget target(targetSpeed,
+                             startState.s.s,
+                             State{targetLaneD, 0, 0},
+                             0,
+                             0);
+  
+  auto reactionTimePenalty = [](const PolyFunction & sTraj,
+                                const PolyFunction & dTraj,
+                                double targetTime) {
+    return targetTime;
+  };
+  
+  auto stayInLanesPenalty =
+  [leftBoundary, rightBoundary](const PolyFunction & sTraj,
+                                const PolyFunction & dTraj,
+                                double targetTime) {
+    return OutsideOfTheRoadPenalty(sTraj, dTraj, leftBoundary,
+                                   rightBoundary, targetTime);
+  };
+
+  WeightedFunctions weighted{
+    {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
+    {10, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
+    //{1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)},
+    {500, stayInLanesPenalty},
+    {20, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
+    {1, reactionTimePenalty}
+  };
+  
+  auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2, _3);
+  
+  GenConfig cfg;
+  cfg.sigmaS.s = kSigmaSS;
+  cfg.sigmaS.v = kSigmaSV;
+  cfg.sigmaS.acc = kSigmaSAcc;
+  cfg.sigmaD.s = kSigmaDS;
+  cfg.sigmaD.v = kSigmaDV;
+  cfg.sigmaD.acc = kSigmaDAcc;
+  cfg.samplesCount = 40;
+  cfg.minTime = m_minTrajectoryTimeSeconds;
+  cfg.maxTime = m_horizonSeconds + 10;
+  cfg.timeStep = 0.2;
+  
+  return FindBestTrajectories(startState, target, cfg, costFunction);
+}
+
+double Decider::LimitAccelerationAndSpeed(const PolyFunction &sTraj, const PolyFunction &dTraj, double targetTime) const {
+  return CartesianAccelerationLimitCost(sTraj, dTraj, targetTime, kMaxAccelerationMs2, kMaxSpeedMs, m_map);
+}
+
+BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCarSensor> & sensors) {
+
   ++m_updateNumber;
   
   const auto outsideOfTheRoadPenalty = [this](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
     return OutsideOfTheRoadPenalty(sTraj, dTraj, 0 + m_laneWidth / 8, 3 * m_laneWidth - m_laneWidth / 8, targetTime);
-  };
-  
-  const auto cartesianAccelerationAndSpeedLimit = [this, kMaxAccelerationMs2, kMaxSpeedMs](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
-    return CartesianAccelerationLimitCost(sTraj, dTraj, targetTime, kMaxAccelerationMs2, kMaxSpeedMs, m_map);
   };
 
   auto reactionTimePenalty = [](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
@@ -428,45 +541,46 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
   };
 
   World world(sensors, m_laneWidth);
+  const auto snapshot = world.Simulate(m_latencySeconds);
 
   using std::placeholders::_1;
   using std::placeholders::_2;
   using std::placeholders::_3;
 
-  const int kCurrentLaneIdx = DPosToCurrentLane(startState.d.s, m_laneWidth);
-  const double kCurrentLaneD = CurrentLaneToDPos(kCurrentLaneIdx, m_laneWidth);
-  const double kOtherVehicleFollowDistance = 30; // TODO: should not it be possible to follow a vehicle from far?
+  m_currentLane = DPosToCurrentLane(startState.d.s, m_laneWidth);
+  const double currentLaneD = CurrentLaneToDPos(m_currentLane, m_laneWidth);
   
   if (m_targetLane == -1) {
-    m_targetLane = kCurrentLaneIdx;
+    m_targetLane = m_currentLane;
   }
 
   switch (m_state) {
     case kKeepSpeedState: {
       OtherCar closestCar;
-      if (world.GetClosestCar(kCurrentLaneIdx, startState.s.s, &closestCar)) {
+      if (snapshot.GetClosestCar(m_currentLane, startState.s.s, &closestCar)) {
         double distance = closestCar.fnPos.s - startState.s.s;
-        
-        // TODO: this should check the car in future
+
         std::cout << "Found closest car id=" << closestCar.id << ", s=" << closestCar.fnPos.s << ", my s=" << startState.s.s << std::endl;
-        if (distance <= kOtherVehicleFollowDistance) {
+
+        if (distance <= kOtherVehicleMonitorDistance) {
           m_state = kFollowVehicleState;
           m_followingCarId = closestCar.id;
         }
       }
-      // This is to simulate lane change
+//      // This is to simulate lane change
 //      if (m_updateNumber == 9) {
-//        m_targetLane = m_targetLane + 1;
-//        m_state = kChangingLaneRightState;
+//        m_targetLane = m_targetLane - 1;
+//        m_state = kChangingLaneLeftState;
 //        m_targetSpeed = startState.s.v;
 //      }
     } break;
+
     case kFollowVehicleState: {
       OtherCar closestCar;
-      if (world.GetClosestCar(kCurrentLaneIdx, startState.s.s, &closestCar)) {
+      if (snapshot.GetClosestCar(m_currentLane, startState.s.s, &closestCar)) {
         double distance = closestCar.fnPos.s - startState.s.s;
 
-        if (distance > kOtherVehicleFollowDistance) {
+        if (distance > kOtherVehicleMonitorDistance) {
           std::cout << "No cars to follow" << ", my s=" << startState.s.s << std::endl;
           m_state = kKeepSpeedState;
           m_followingCarId = -1;
@@ -476,20 +590,35 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
             m_followingCarId = closestCar.id;
           }
         }
+        
+        if (distance < 30) {
+          if (m_currentLane > 1) {
+            m_state = kChangingLaneLeftState;
+            m_targetLane = m_currentLane - 1;
+            m_targetSpeed = startState.s.v;
+          } else if (m_currentLane < 2) {
+            m_state = kChangingLaneRightState;
+            m_targetLane = m_currentLane + 1;
+            m_targetSpeed = startState.s.v;
+          }
+        }
       }
     } break;
+
     case kChangingLaneRightState: {
-      if (kCurrentLaneIdx == m_targetLane && (std::abs(kCurrentLaneD - startState.d.s) < m_laneWidth / 8)) {
+      if (m_currentLane == m_targetLane && (std::abs(currentLaneD - startState.d.s) < m_laneWidth / 8)) {
         std::cout << "Reached the target (right) lane" << std::endl;
         m_state = kKeepSpeedState;
       }
     } break;
+
     case kChangingLaneLeftState: {
-      if (kCurrentLaneIdx == m_targetLane) {
+      if (m_currentLane == m_targetLane && (std::abs(currentLaneD - startState.d.s) < m_laneWidth / 8)) {
         std::cout << "Reached the target (left) lane" << std::endl;
         m_state = kKeepSpeedState;
       }
     } break;
+
     default:
       throw std::runtime_error("Not implemented");
       break;
@@ -501,17 +630,17 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
 
       const double kTargetSpeed = MiphToMs(48);
 
-      ConstantSpeedTarget target(kTargetSpeed, startState.s.s, State{kCurrentLaneD, 0, 0}, 0, 0);
+      ConstantSpeedTarget target(kTargetSpeed, startState.s.s, State{currentLaneD, 0, 0}, 0, 0);
 
-      const double laneLeft = kCurrentLaneD - m_laneWidth/8;
-      const double laneRight = kCurrentLaneD + m_laneWidth/8;
+      const double laneLeft = currentLaneD - m_laneWidth/8;
+      const double laneRight = currentLaneD + m_laneWidth/8;
 
       WeightedFunctions weighted{
         {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
         {20, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
         {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)},
         {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, laneLeft, laneRight, _3)},
-        {50, std::bind(cartesianAccelerationAndSpeedLimit, _1, _2, _3)}
+        {50, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
       };
 
       auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2, _3);
@@ -532,33 +661,34 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
     } break;
     
     case kFollowVehicleState: {
-      OtherCar otherCar = world.GetCarById(m_followingCarId);
-      double otherCarSpeedModulo = std::sqrt(otherCar.speed.x * otherCar.speed.x + otherCar.speed.y * otherCar.speed.y);
+      OtherCar otherCar = snapshot.GetCarById(m_followingCarId);
       
       // TODO: this should be based on the target vehicle speed, maximum allowed acceleration to go to full stop
       // s = 0.5/a * v^2
       // lets do 2x
-      double distanceToKeep = 2 * (otherCarSpeedModulo * otherCarSpeedModulo) * 0.5 / kMaxAccelerationMs2;
+      double distanceToKeep = 2 * (otherCar.speed * otherCar.speed) * 0.5 / kMaxAccelerationMs2;
 
-      std::cout << "Following vehicle id=" << m_followingCarId << ", distance=" << distanceToKeep << std::endl;
+      std::cout << "Following vehicle id=" << m_followingCarId << ", distance=" << (otherCar.fnPos.s - startState.s.s) << ", distanceToKeep=" << distanceToKeep << std::endl;
       
-      ConstantSpeedTarget target(otherCarSpeedModulo,
+      // TODO: should actually use world to do such simulation
+      ConstantSpeedTarget target(otherCar.speed,
                                  otherCar.fnPos.s,
-                                 State{kCurrentLaneD, 0, 0},
+                                 State{currentLaneD, 0, 0},
                                  distanceToKeep,
-                                 m_latencySeconds);
+                                 0); // no need for latency, as it was incorporated by snapshot
       
-      const double laneLeft = kCurrentLaneD - m_laneWidth/2 + m_laneWidth * 1/8;
-      const double laneRight = kCurrentLaneD + m_laneWidth/2 - m_laneWidth * 1/8;
+      const double laneLeft = currentLaneD - m_laneWidth/2 + m_laneWidth * 1/8;
+      const double laneRight = currentLaneD + m_laneWidth/2 - m_laneWidth * 1/8;
+
       WeightedFunctions weighted{
         {30, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
         {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
         //{90, std::bind(speedLimit, _1, _2, _3)},
         //{200, std::bind(accelerationLimit, _1, _2, _3)},
         {1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)},
-        {300, std::bind(OutsideOfTheRoadPenalty, _1, _2, laneLeft, laneRight, _3)},
+        {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, laneLeft, laneRight, _3)},
         //{5, reactionTimePenalty},
-        {300, std::bind(cartesianAccelerationAndSpeedLimit, _1, _2, _3)}
+        {300, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
       };
       
       auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2, _3);
@@ -572,57 +702,36 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
       cfg.sigmaD.acc = kSigmaDAcc;
       cfg.samplesCount = 40;
       cfg.minTime = m_minTrajectoryTimeSeconds;
-      cfg.maxTime = m_horizonSeconds + 10;
+      cfg.maxTime = m_horizonSeconds + 20;
       cfg.timeStep = 0.2;
       
       auto result = FindBestTrajectories(startState, target, cfg, costFunction);
       std::cout << "Future state: car pos=" << target.At(result.time).s.s << ", car speed="
-         << otherCarSpeedModulo << ", my pos=" << result.s.Eval(result.time)
+         << otherCar.speed << ", my pos=" << result.s.Eval(result.time)
          << ", my speed=" << result.s.Eval2(result.time)
          << std::endl;
       return result;
     } break;
     
     case kChangingLaneLeftState: {
-      
+      std::cout << "Changing lane left, targetSpeed=" << m_targetSpeed << std::endl;
+      auto trajectory = BuildLaneSwitchTrajectory(startState,
+                                                  m_targetLane,
+                                                  m_targetSpeed,
+                                                  world);
+      m_state = kChangingLaneLeftState;
+      return trajectory;
     } break;
     
     case kChangingLaneRightState: {
       std::cout << "Changing lane right, targetSpeed=" << m_targetSpeed << std::endl;
-      
-      double targetLaneD = CurrentLaneToDPos(m_targetLane, m_laneWidth);
 
-      ConstantSpeedTarget target(m_targetSpeed, startState.s.s, State{targetLaneD, 0, 0}, 0, m_latencySeconds);
-      
-      const double laneLeft = kCurrentLaneD - m_laneWidth / 2 + m_laneWidth / 8;
-      const double laneRight = targetLaneD + m_laneWidth / 2 - m_laneWidth / 8;
-      
-      WeightedFunctions weighted{
-        {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
-        {10, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
-        //{1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)},
-        {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, laneLeft, laneRight, _3)},
-        {20, std::bind(cartesianAccelerationAndSpeedLimit, _1, _2, _3)},
-        {1, reactionTimePenalty}
-      };
-      
-      auto costFunction = std::bind(WeightedCostFunction, weighted, _1, _2, _3);
-
-      GenConfig cfg;
-      cfg.sigmaS.s = kSigmaSS;
-      cfg.sigmaS.v = kSigmaSV;
-      cfg.sigmaS.acc = kSigmaSAcc;
-      cfg.sigmaD.s = kSigmaDS;
-      cfg.sigmaD.v = kSigmaDV;
-      cfg.sigmaD.acc = kSigmaDAcc;
-      cfg.samplesCount = 40;
-      cfg.minTime = m_minTrajectoryTimeSeconds;
-      cfg.maxTime = m_horizonSeconds + 10;
-      cfg.timeStep = 0.2;
-      
+      auto trajectory = BuildLaneSwitchTrajectory(startState,
+                                                  m_targetLane,
+                                                  m_targetSpeed,
+                                                  world);
       m_state = kChangingLaneRightState;
-
-      return FindBestTrajectories(startState, target, cfg, costFunction);
+      return trajectory;
     } break;
     
     default:
@@ -659,7 +768,7 @@ Planner::Planner(const Map& map, double updatePeriodSeconds, double laneWidthMet
 std::vector<Point> Planner::Update(const CarEx& car,
                                    const std::vector<Point>& unprocessedPath,
                                    const FrenetPoint& endPath,
-                                   const std::vector<OtherCar>& sensors) {
+                                   const std::vector<OtherCarSensor>& sensors) {
   
   bool isTimeToReplan = m_updateNumber == 0;
   
@@ -685,9 +794,9 @@ std::vector<Point> Planner::Update(const CarEx& car,
   
 //  std::cout << "idx=" << currentPosIdx << ", s=" << car.fp.s << ", d=" << car.fp.d << ", speed=" << car.car.speed << ", phi=" << car.car.yaw << (isTimeToReplan ? ", replanning" : ",") << std::endl;
   
-  std::cout << "idx=" << currentPosIdx << ", s=" << car.fp.s << ", speed=" << car.car.speed << ", up=" << unprocessedPath.size()
-    << (isTimeToReplan ? ", replanning" : ",") << std::endl;
-  
+//  std::cout << "idx=" << currentPosIdx << ", s=" << car.fp.s << ", speed=" << car.car.speed << ", up=" << unprocessedPath.size()
+//    << (isTimeToReplan ? ", replanning" : ",") << std::endl;
+
   if (!isTimeToReplan) {
     return unprocessedPath;
   }
@@ -709,14 +818,14 @@ std::vector<Point> Planner::Update(const CarEx& car,
     
     std::cout << "Start ";
     std::cout << "s=[" << "s=" << startState.s.s << ", v=" << startState.s.v << ", acc=" << startState.s.acc << "], ";
-    std::cout << "time=" << nextPosIdx * m_updatePeriod << std::endl;
+    std::cout << "time=" << nextPosIdx * m_updatePeriod << "\n";
   }
 
   auto start = std::chrono::high_resolution_clock::now();
   auto bestTrajectory = m_decider.ChooseBestTrajectory(startState, sensors);
   using sec = std::chrono::duration<double>;
   auto delta = std::chrono::duration_cast<sec>(std::chrono::high_resolution_clock::now() - start);
-  std::cout << "Decider time=" << delta.count() << ", update time delta=" << (std::chrono::duration_cast<sec>(start - m_prevUpdateTime).count() - currentPosIdx * m_updatePeriod) << std::endl;
+  std::cout << "Decider time=" << delta.count() << ", update time delta=" << (std::chrono::duration_cast<sec>(start - m_prevUpdateTime).count() - currentPosIdx * m_updatePeriod) << "\n" << std::endl;
   m_prevUpdateTime = start;
 
   std::vector<Point> planned;

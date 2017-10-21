@@ -97,14 +97,14 @@ int main() {
           // Sensor Fusion Data, a list of all other cars on the same side of
           // the road.
 
-          std::vector<OtherCar> sensors;
+          std::vector<OtherCarSensor> sensors;
 
           for (const auto &input : j[1]["sensor_fusion"]) {
             int id = input[0];
             Point pos{input[1], input[2]};
             Point speed{input[3], input[4]};
             FrenetPoint fnPos{input[5], input[6]};
-            OtherCar ocar{id, pos, speed, fnPos};
+            OtherCarSensor ocar{id, pos, speed, fnPos};
             sensors.push_back(ocar);
           }
 

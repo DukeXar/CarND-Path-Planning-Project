@@ -10,7 +10,7 @@ struct CarEx {
   FrenetPoint fp;
 };
 
-struct OtherCar {
+struct OtherCarSensor {
   int id;
   Point pos;
   Point speed;
