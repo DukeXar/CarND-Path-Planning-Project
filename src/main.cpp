@@ -102,7 +102,7 @@ int main() {
           for (const auto &input : j[1]["sensor_fusion"]) {
             int id = input[0];
             Point pos{input[1], input[2]};
-            Point speed{MiphToMs(input[3]), MiphToMs(input[4])};
+            Point speed{input[3], input[4]};
             FrenetPoint fnPos{input[5], input[6]};
             OtherCar ocar{id, pos, speed, fnPos};
             sensors.push_back(ocar);

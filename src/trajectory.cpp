@@ -58,35 +58,35 @@ struct Goal2D {
   double time;
 };
 
-State2D PerturbTarget(const State2D & target) {
-  std::random_device rd;
-  std::mt19937 gen(rd());
+State2D PerturbTarget(const State2D & target, const State & sigmaS, const State & sigmaD) {
+  static std::random_device rd;
+  static std::mt19937 gen(rd());
   
   State resS;
   {
-    std::normal_distribution<> d(target.s.s, kSigmaSS);
+    std::normal_distribution<> d(target.s.s, sigmaS.s);
     resS.s = d(gen);
   }
   {
-    std::normal_distribution<> d(target.s.v, kSigmaSV);
+    std::normal_distribution<> d(target.s.v, sigmaS.v);
     resS.v = d(gen);
   }
   {
-    std::normal_distribution<> d(target.s.acc, kSigmaSAcc);
+    std::normal_distribution<> d(target.s.acc, sigmaS.acc);
     resS.acc = d(gen);
   }
   
   State resD;
   {
-    std::normal_distribution<> d(target.d.s, kSigmaDS);
+    std::normal_distribution<> d(target.d.s, sigmaD.s);
     resD.s = d(gen);
   }
   {
-    std::normal_distribution<> d(target.d.v, kSigmaDV);
+    std::normal_distribution<> d(target.d.v, sigmaD.v);
     resD.v = d(gen);
   }
   {
-    std::normal_distribution<> d(target.d.acc, kSigmaDAcc);
+    std::normal_distribution<> d(target.d.acc, sigmaD.acc);
     resD.acc = d(gen);
   }
   return {resS, resD};
@@ -94,28 +94,27 @@ State2D PerturbTarget(const State2D & target) {
 
 BestTrajectories FindBestTrajectories(const State2D & start,
                                       const Target & target,
-                                      double minTime,
-                                      double maxTime,
-                                      double timeStep,
-                                      double samplesCount,
+                                      const GenConfig & config,
                                       const CostFunction & costFunction) {
   
   std::vector<Goal2D> goals;
   
-  double currTime = minTime;
-  while (currTime <= maxTime) {
+  double currTime = config.minTime;
+  while (currTime <= config.maxTime) {
     State2D currTarget = target.At(currTime);
     goals.push_back({currTarget, currTime});
-    
-    for (int sample = 0; sample < samplesCount; ++sample) {
-      State2D perturbedTarget = PerturbTarget(currTarget);
-      // Ensure we don't move backwards.
-      if (perturbedTarget.s.s > start.s.s) {
+
+    int totalGenerated = 0;
+    while (totalGenerated < config.samplesCount) {
+      State2D perturbedTarget = PerturbTarget(currTarget, config.sigmaS, config.sigmaD);
+      // Ensure we don't move backwards, and speed is sane.
+      if (perturbedTarget.s.s > start.s.s && perturbedTarget.s.v >= 0) {
         goals.push_back({perturbedTarget, currTime});
+        ++totalGenerated;
       }
     }
     
-    currTime += timeStep;
+    currTime += config.timeStep;
   }
   
   std::vector<BestTrajectories> trajectories;

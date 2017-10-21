@@ -2,13 +2,14 @@
 
 #include <memory>
 #include <vector>
+#include <chrono>
 #include "map.h"
 #include "trajectory.h"
 
 
 class Decider {
 public:
-  Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds, const Map & map);
+  Decider(double horizonSeconds, double laneWidth, double minTrajectoryTimeSeconds, double latencySeconds, const Map & map);
 
   BestTrajectories ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCar> & sensors);
   
@@ -16,6 +17,7 @@ private:
   double m_horizonSeconds;
   double m_laneWidth;
   double m_minTrajectoryTimeSeconds;
+  double m_latencySeconds;
   const Map & m_map;
 
   int m_state;
@@ -46,4 +48,5 @@ class Planner {
   size_t m_trajectoryOffsetIdx;
   bool m_hasTrajectory;
   unsigned m_updateNumber;
+  std::chrono::high_resolution_clock::time_point m_prevUpdateTime;
 };

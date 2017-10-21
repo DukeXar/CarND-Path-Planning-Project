@@ -48,6 +48,15 @@ public:
   virtual State2D At(double time) const = 0;
 };
 
+struct GenConfig {
+  State sigmaS;
+  State sigmaD;
+  int samplesCount;
+  double minTime;
+  double maxTime;
+  double timeStep;
+};
+
 const double kSigmaSAcc = 2.0;
 const double kSigmaSV = 4.0;
 const double kSigmaSS = 10.0;
@@ -66,8 +75,5 @@ struct BestTrajectories {
 
 BestTrajectories FindBestTrajectories(const State2D & start,
                                       const Target & target,
-                                      double minTime,
-                                      double targetTime,
-                                      double timeStep,
-                                      double samplesCount,
+                                      const GenConfig & config,
                                       const CostFunction & costFunction);
