@@ -85,16 +85,16 @@ World::World(const std::vector<OtherCar> & sensors, double laneWidth): m_laneWid
     });
   }
 
-  std::cout << "Cars by lane: \n";
-  for (const auto & laneAndCars : m_cars) {
-    std::cout << laneAndCars.first << "=[";
-    for (const auto & car : laneAndCars.second) {
-      double v = std::sqrt(car.speed.x * car.speed.x + car.speed.y * car.speed.y);
-      std::cout << car.id << "(s=" << car.fnPos.s << ", v=" << v << ")" << ",";
-    }
-    std::cout << "]\n";
-  }
-  std::cout << std::endl;
+//  std::cout << "Cars by lane: \n";
+//  for (const auto & laneAndCars : m_cars) {
+//    std::cout << laneAndCars.first << "=[";
+//    for (const auto & car : laneAndCars.second) {
+//      double v = std::sqrt(car.speed.x * car.speed.x + car.speed.y * car.speed.y);
+//      std::cout << car.id << "(s=" << car.fnPos.s << ", v=" << v << ")" << ",";
+//    }
+//    std::cout << "]\n";
+//  }
+//  std::cout << std::endl;
 }
 
 bool World::GetClosestCar(int laneIdx, double s, OtherCar * result) const {
@@ -407,29 +407,18 @@ m_followingCarId(-1), m_targetLane(-1), m_targetSpeed(0), m_updateNumber(0) {
 }
 
 BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const std::vector<OtherCar> & sensors) {
-  const double kTimeStep = 0.5;
-
+  // README: Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 50 m/s^3.
+  const double kMaxAccelerationMs2 = 10;
+  const double kMaxSpeedMs = MiphToMs(50);
+  
   ++m_updateNumber;
   
   const auto outsideOfTheRoadPenalty = [this](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
     return OutsideOfTheRoadPenalty(sTraj, dTraj, 0 + m_laneWidth / 8, 3 * m_laneWidth - m_laneWidth / 8, targetTime);
   };
   
-  // README: Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 50 m/s^3.
-
-  const auto accelerationLimit = [](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
-    const double kMaxAccelerationMs2 = 10;
-    return AccelerationLimitCost(sTraj, dTraj, targetTime, kMaxAccelerationMs2);
-  };
-  
-  const auto cartesianAccelerationAndSpeedLimit = [this](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
-    const double kMaxAccelerationMs2 = 10;
-    const double kMaxSpeedMs = MiphToMs(50);
+  const auto cartesianAccelerationAndSpeedLimit = [this, kMaxAccelerationMs2, kMaxSpeedMs](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
     return CartesianAccelerationLimitCost(sTraj, dTraj, targetTime, kMaxAccelerationMs2, kMaxSpeedMs, m_map);
-  };
-  
-  const auto speedLimit = [](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
-    return SpeedLimitCost(sTraj, dTraj, targetTime, MiphToMs(50));
   };
 
   auto reactionTimePenalty = [](const PolyFunction & sTraj, const PolyFunction & dTraj, double targetTime) {
@@ -546,7 +535,6 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
       
       // TODO: this should be based on the target vehicle speed, maximum allowed acceleration to go to full stop
       // s = 0.5/a * v^2
-      const double kMaxAccelerationMs2 = 10;
       // lets do 2x
       double distanceToKeep = 2 * (otherCarSpeedModulo * otherCarSpeedModulo) * 0.5 / kMaxAccelerationMs2;
 
@@ -600,9 +588,6 @@ BestTrajectories Decider::ChooseBestTrajectory(const State2D & startState, const
     case kChangingLaneRightState: {
       std::cout << "Changing lane right, targetSpeed=" << m_targetSpeed << std::endl;
       
-      // TODO: this should be target vehicle or lane speed, or current speed if no vehicles in the target lane
-      const double kTargetSpeed = MiphToMs(46);
-
       double targetLaneD = CurrentLaneToDPos(m_targetLane, m_laneWidth);
 
       ConstantSpeedTarget target(m_targetSpeed, startState.s.s, State{targetLaneD, 0, 0}, 0, m_latencySeconds);
