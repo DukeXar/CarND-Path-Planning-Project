@@ -64,7 +64,7 @@ WorldSnapshot::WorldSnapshot(const std::vector<OtherCar>& sensors,
     : m_laneWidth(laneWidth) {
   for (const auto& car : sensors) {
     int lane = DPosToCurrentLane(car.fnPos.d, laneWidth);
-    if (lane > 0) {
+    if (lane >= 0) {
       m_cars[lane].push_back(car.id);
       m_byId[car.id] = car;
       //      std::cout << "lane=" << lane << ", d=" << car.fnPos.d << ", s=" <<
@@ -636,6 +636,18 @@ BestTrajectories Decider::ChooseBestTrajectory(
   World world(sensors, m_laneWidth);
   const auto snapshot = world.Simulate(m_latencySeconds);
 
+  std::cout << "Cars by lane: \n";
+  for (const auto& laneAndCarIds : snapshot.GetAllCarsByLane()) {
+    std::cout << "Lane " << laneAndCarIds.first << "\n";
+    for (const auto& carId : laneAndCarIds.second) {
+      const auto& car = snapshot.GetCarById(carId);
+      std::cout << "\t" << car.id << "\t" << car.speed << "\t" << car.fnPos.s
+                << "\n";
+    }
+    std::cout << "\n";
+  }
+  std::cout << std::endl;
+
   m_currentLane = DPosToCurrentLane(startState.d.s, m_laneWidth);
   const double currentLaneD = CurrentLaneToDPos(m_currentLane, m_laneWidth);
 
@@ -660,60 +672,70 @@ BestTrajectories Decider::ChooseBestTrajectory(
     std::cout << "Reached the target " << dest << " lane" << std::endl;
   }
 
-  std::vector<std::pair<int, OtherCar>> speeds;
-  OtherCar currentLaneCar;
-  bool currentLaneOccupied = false;
-  OtherCar closestCar;
+  typedef std::unordered_map<int, std::pair<bool, OtherCar>> LaneToOccupancy;
+  LaneToOccupancy speeds;
 
-  if (snapshot.GetClosestCar(m_currentLane, startState.s.s, &closestCar)) {
-    speeds.push_back({m_currentLane, closestCar});
-    currentLaneCar = closestCar;
-    currentLaneOccupied = true;
-  }
+  const int leftLaneIdx = std::max(0, m_currentLane - 1);
+  const int rightLaneIdx = std::min(2, m_currentLane + 1);
 
-  if (m_currentLane > 0) {
-    if (snapshot.GetClosestCar(m_currentLane - 1, startState.s.s,
-                               &closestCar)) {
-      speeds.push_back({m_currentLane - 1, closestCar});
+  for (int laneIdx = leftLaneIdx; laneIdx <= rightLaneIdx; ++laneIdx) {
+    OtherCar closestCar;
+    if (snapshot.GetClosestCar(laneIdx, startState.s.s, &closestCar)) {
+      speeds.insert({laneIdx, {true, closestCar}});
+    } else {
+      OtherCar stub;
+      stub.speed = kMaxSpeedMs;
+      stub.id = -1;
+      speeds.insert({laneIdx, {false, stub}});
     }
   }
 
-  if (m_currentLane < 2) {
-    if (snapshot.GetClosestCar(m_currentLane + 1, startState.s.s,
-                               &closestCar)) {
-      speeds.push_back({m_currentLane + 1, closestCar});
-    }
+  std::cout << "Lanes status:\n";
+  for (const auto& pp : speeds) {
+    std::cout << pp.first << "\t occupied=" << pp.second.first
+              << "\t speed=" << pp.second.second.speed << "\n";
   }
+  std::cout << std::endl;
 
   auto maxSpeedLane = std::max_element(
-      begin(speeds), end(speeds), [](const std::pair<int, OtherCar>& p1,
-                                     const std::pair<int, OtherCar>& p2) {
-        return p1.second.speed < p2.second.speed;
+      begin(speeds), end(speeds), [](const LaneToOccupancy::value_type& p1,
+                                     const LaneToOccupancy::value_type& p2) {
+        return p1.second.second.speed < p2.second.second.speed;
       });
 
-  if (maxSpeedLane == end(speeds)) {
-    // Road is free so far
-    m_state = kKeepSpeedState;
-  } else {
-    if (!currentLaneOccupied) {
-      m_state = kKeepSpeedState;
-    } else {
-      double distance = currentLaneCar.fnPos.s - startState.s.s;
-      if (distance <= kOtherVehicleMonitorDistance) {
-        if (maxSpeedLane->first == m_currentLane) {
-          m_state = kFollowVehicleState;
-          m_followingCarId = currentLaneCar.id;
-        } else {
-          m_state = maxSpeedLane->first < m_currentLane
-                        ? kChangingLaneLeftState
-                        : kChangingLaneRightState;
-          m_targetLane = maxSpeedLane->first;
-          m_targetSpeed = startState.s.v;
-        }
-      } else {
+  std::cout << "Max speed lane: " << maxSpeedLane->first << std::endl;
+
+  if (maxSpeedLane->first == m_currentLane) {
+    const auto& currentLane = speeds[m_currentLane];
+    if (currentLane.first) {
+      double distance = currentLane.second.fnPos.s - startState.s.s;
+      if (distance > kOtherVehicleMonitorDistance) {
         m_state = kKeepSpeedState;
         m_followingCarId = -1;
+      } else {
+        m_state = kFollowVehicleState;
+        m_followingCarId = currentLane.second.id;
       }
+    } else {
+      m_state = kKeepSpeedState;
+      m_followingCarId = -1;
+    }
+  } else {
+    const auto& currentLane = speeds[m_currentLane];
+    if (currentLane.first) {
+      double distance = currentLane.second.fnPos.s - startState.s.s;
+      if (distance > kOtherVehicleMonitorDistance) {
+        m_state = kKeepSpeedState;
+        m_followingCarId = -1;
+      } else {
+        m_state = maxSpeedLane->first < m_currentLane ? kChangingLaneLeftState
+                                                      : kChangingLaneRightState;
+        m_targetLane = maxSpeedLane->first;
+        m_targetSpeed = startState.s.v;
+      }
+    } else {
+      m_state = kKeepSpeedState;
+      m_followingCarId = -1;
     }
   }
 

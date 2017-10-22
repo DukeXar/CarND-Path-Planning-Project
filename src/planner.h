@@ -22,6 +22,9 @@ class WorldSnapshot {
   double GetLaneWidth() const { return m_laneWidth; }
 
   const std::unordered_map<int, OtherCar>& GetAllCars() const { return m_byId; }
+  const std::unordered_map<int, std::vector<int>>& GetAllCarsByLane() const {
+    return m_cars;
+  }
 
  private:
   double m_laneWidth;
