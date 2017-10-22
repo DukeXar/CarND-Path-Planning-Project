@@ -123,8 +123,8 @@ BestTrajectories FindBestTrajectories(const State2D& start,
   for (const auto& goal : goals) {
     trajectories.push_back(
         {JerkMinimizingTrajectory(start.s, goal.state.s, goal.time),
-         JerkMinimizingTrajectory(start.d, goal.state.d, goal.time),
-         goal.time});
+         JerkMinimizingTrajectory(start.d, goal.state.d, goal.time), goal.time,
+         0});
   }
 
   std::vector<double> allCosts;
@@ -139,6 +139,9 @@ BestTrajectories FindBestTrajectories(const State2D& start,
   auto bestIdx =
       std::min_element(begin(allCosts), end(allCosts)) - begin(allCosts);
 
+  auto bestTrajectory = trajectories[bestIdx];
+  bestTrajectory.cost = allCosts[bestIdx];
+
   std::cout << "best trajectory=[";
   std::cout << "s=["
             << "s=" << goals[bestIdx].state.s.s
@@ -148,8 +151,8 @@ BestTrajectories FindBestTrajectories(const State2D& start,
             << "s=" << goals[bestIdx].state.d.s
             << ", v=" << goals[bestIdx].state.d.v
             << ", acc=" << goals[bestIdx].state.d.acc << "], ";
-  std::cout << "time=" << goals[bestIdx].time << ", cost=" << allCosts[bestIdx]
-            << std::endl;
+  std::cout << "time=" << bestTrajectory.time
+            << ", cost=" << bestTrajectory.cost << std::endl;
 
-  return std::move(trajectories[bestIdx]);
+  return bestTrajectory;
 }

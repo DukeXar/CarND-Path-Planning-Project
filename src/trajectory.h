@@ -4,7 +4,6 @@
 #include <functional>
 #include "map.h"
 
-
 struct CarEx {
   Car car;
   FrenetPoint fp;
@@ -24,19 +23,20 @@ struct State {
 };
 
 class PolyFunction {
-public:
+ public:
   PolyFunction() {}
-  explicit PolyFunction(const std::array<double, 6> & coeff): m_coeff(coeff) {}
+  explicit PolyFunction(const std::array<double, 6>& coeff) : m_coeff(coeff) {}
 
   double Eval(double x) const;
   double Eval2(double x) const;
   double Eval3(double x) const;
-  
-private:
+
+ private:
   std::array<double, 6> m_coeff;
 };
 
-PolyFunction JerkMinimizingTrajectory(const State & start, const State & end, double time);
+PolyFunction JerkMinimizingTrajectory(const State& start, const State& end,
+                                      double time);
 
 struct State2D {
   State s;
@@ -44,7 +44,7 @@ struct State2D {
 };
 
 class Target {
-public:
+ public:
   virtual State2D At(double time) const = 0;
 };
 
@@ -65,15 +65,17 @@ const double kSigmaDAcc = 1.0;
 const double kSigmaDV = 1.0;
 const double kSigmaDS = 1.0;
 
-typedef std::function<double(const PolyFunction & sTraj, const PolyFunction & dTraj,
-                             double targetTime)> CostFunction;
+typedef std::function<double(const PolyFunction& sTraj,
+                             const PolyFunction& dTraj, double targetTime)>
+    CostFunction;
 
 struct BestTrajectories {
   PolyFunction s, d;
   double time;
+  double cost;
 };
 
-BestTrajectories FindBestTrajectories(const State2D & start,
-                                      const Target & target,
-                                      const GenConfig & config,
-                                      const CostFunction & costFunction);
+BestTrajectories FindBestTrajectories(const State2D& start,
+                                      const Target& target,
+                                      const GenConfig& config,
+                                      const CostFunction& costFunction);

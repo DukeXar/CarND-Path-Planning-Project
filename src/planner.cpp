@@ -727,10 +727,19 @@ BestTrajectories Decider::ChooseBestTrajectory(
         m_state = kKeepSpeedState;
         m_followingCarId = -1;
       } else {
-        m_state = maxSpeedLane->first < m_currentLane ? kChangingLaneLeftState
-                                                      : kChangingLaneRightState;
-        m_targetLane = maxSpeedLane->first;
-        m_targetSpeed = startState.s.v;
+        auto trajectory = BuildLaneSwitchTrajectory(
+            startState, maxSpeedLane->first, startState.s.v, world);
+        if (trajectory.cost < 500) {
+          m_state = maxSpeedLane->first < m_currentLane
+                        ? kChangingLaneLeftState
+                        : kChangingLaneRightState;
+          m_targetLane = maxSpeedLane->first;
+          m_targetSpeed = startState.s.v;
+          return trajectory;
+        } else {
+          m_state = kFollowVehicleState;
+          m_followingCarId = currentLane.second.id;
+        }
       }
     } else {
       m_state = kKeepSpeedState;
@@ -745,11 +754,6 @@ BestTrajectories Decider::ChooseBestTrajectory(
 
   if (m_state == kFollowVehicleState) {
     return BuildKeepDistanceTrajectory(startState, m_followingCarId, snapshot);
-  }
-
-  if (m_state == kChangingLaneLeftState || m_state == kChangingLaneRightState) {
-    return BuildLaneSwitchTrajectory(startState, m_targetLane, m_targetSpeed,
-                                     world);
   }
 
   throw std::runtime_error("Must not reach");
