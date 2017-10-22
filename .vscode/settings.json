@@ -59,5 +59,8 @@
         "thread": "cpp",
         "*.ipp": "cpp",
         "vector": "cpp"
+    },
+    "[cpp]": {
+        "editor.tabSize": 2,     
     }
 }
