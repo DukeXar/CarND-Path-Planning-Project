@@ -381,6 +381,56 @@ double CartesianAccelerationLimitCost(const PolyFunction& sTraj,
   return (10 * accCost + speedCost) / 11;
 }
 
+double CollidesWithAnyVehicle(const PolyFunction& sTraj,
+                              const PolyFunction& dTraj, double targetTime,
+                              double worldTimeOffset, World& world,
+                              const Map& map, double distanceLimit,
+                              const std::vector<int>& lanesToCheck,
+                              bool verbose = false) {
+  double intervalLength = 0.02;
+  int totalIntervals = targetTime / intervalLength;
+
+  double minDistance = std::numeric_limits<double>::max();
+
+  for (int i = 0; i < totalIntervals; ++i) {
+    double currentTime = i * intervalLength;
+    FrenetPoint carPosFn = {sTraj.Eval(currentTime), dTraj.Eval(currentTime)};
+    const auto carPos = map.FromFrenet(carPosFn);
+    WorldSnapshot snapshot = world.Simulate(currentTime + worldTimeOffset);
+
+    std::vector<int> laneIndices = lanesToCheck;
+    if (lanesToCheck.empty()) {
+      for (const auto& laneAndCars : snapshot.GetAllCarsByLane()) {
+        laneIndices.push_back(laneAndCars.first);
+      }
+    }
+
+    for (int laneIdx : laneIndices) {
+      const auto& carIds = snapshot.GetAllCarsByLane().find(laneIdx)->second;
+      for (const auto& carId : carIds) {
+        const auto& car = snapshot.GetCarById(carId);
+        const auto otherCarPos = map.FromFrenet(car.fnPos);
+        double distance =
+            Distance(carPos.x, carPos.y, otherCarPos.x, otherCarPos.y);
+
+        if (verbose) {
+          std::cout << "Checking " << car.id << ", s=" << car.fnPos.s
+                    << ", d=" << car.fnPos.d << ", distance=" << distance
+                    << std::endl;
+        }
+
+        minDistance = std::min(minDistance, distance);
+      }
+    }
+  }
+
+  if (minDistance <= distanceLimit) {
+    return 1.0;
+  }
+
+  return 0.0;
+}
+
 double ClosenessToTargetSState(const PolyFunction& sTraj,
                                const PolyFunction& dTraj, const Target& target,
                                double targetTime) {
@@ -477,6 +527,8 @@ BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D& startState,
                                                     int targetLane,
                                                     double targetSpeed,
                                                     World& world) {
+  const double minDistanceM = 10;
+
   const double safeLaneOffset = GetSafeLaneOffset();
   const bool switchingToRight = targetLane > m_currentLane;
   const double targetLaneD = CurrentLaneToDPos(targetLane, m_laneWidth);
@@ -507,11 +559,20 @@ BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D& startState,
                                    targetTime);
   };
 
+  auto collidesWithAnyVehicle = [this, &world, minDistanceM, targetLane](
+      const PolyFunction& sTraj, const PolyFunction& dTraj, double targetTime) {
+    return CollidesWithAnyVehicle(sTraj, dTraj, targetTime, m_latencySeconds,
+                                  world, m_map, minDistanceM,
+                                  std::vector<int>{targetLane, m_currentLane});
+  };
+
   WeightedFunctions weighted{
       {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
       {10, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
       //{1000, std::bind(outsideOfTheRoadPenalty, _1, _2, _3)},
       {500, stayInLanesPenalty},
+      {500, collidesWithAnyVehicle},
+      // TODO check distance to the vehicle in the lane
       {20, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
       {1, reactionTimePenalty}};
 
@@ -524,12 +585,18 @@ BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D& startState,
   cfg.sigmaD.s = kSigmaDS;
   cfg.sigmaD.v = kSigmaDV;
   cfg.sigmaD.acc = kSigmaDAcc;
-  cfg.samplesCount = 40;
+  cfg.samplesCount = 10;
   cfg.minTime = m_minTrajectoryTimeSeconds;
-  cfg.maxTime = 15;
+  cfg.maxTime = 5;
   cfg.timeStep = 0.2;
 
-  return FindBestTrajectories(startState, target, cfg, costFunction);
+  auto result = FindBestTrajectories(startState, target, cfg, costFunction);
+  // std::cout << "--- Checking collide in lane " << targetLane << std::endl;
+  // double cost = CollidesWithAnyVehicle(
+  //     result.s, result.d, result.time, m_latencySeconds, world, m_map,
+  //     minDistanceM, std::vector<int>{targetLane}, true);
+  // std::cout << "--- Collide cost=" << cost << std::endl;
+  return result;
 }
 
 BestTrajectories Decider::BuildKeepDistanceTrajectory(
@@ -729,7 +796,7 @@ BestTrajectories Decider::ChooseBestTrajectory(
       } else {
         auto trajectory = BuildLaneSwitchTrajectory(
             startState, maxSpeedLane->first, startState.s.v, world);
-        if (trajectory.cost < 500) {
+        if (trajectory.cost < 200) {
           m_state = maxSpeedLane->first < m_currentLane
                         ? kChangingLaneLeftState
                         : kChangingLaneRightState;
@@ -737,6 +804,8 @@ BestTrajectories Decider::ChooseBestTrajectory(
           m_targetSpeed = startState.s.v;
           return trajectory;
         } else {
+          std::cout << "Too hard to change lane - following car instead"
+                    << std::endl;
           m_state = kFollowVehicleState;
           m_followingCarId = currentLane.second.id;
         }
