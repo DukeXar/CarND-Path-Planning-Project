@@ -450,11 +450,9 @@ const int kFollowVehicleState = 1;
 const int kChangingLaneLeftState = 2;
 const int kChangingLaneRightState = 3;
 
-Decider::Decider(double horizonSeconds, double laneWidth,
-                 double minTrajectoryTimeSeconds, double latencySeconds,
-                 const Map& map)
-    : m_horizonSeconds(horizonSeconds),
-      m_laneWidth(laneWidth),
+Decider::Decider(double laneWidth, double minTrajectoryTimeSeconds,
+                 double latencySeconds, const Map& map)
+    : m_laneWidth(laneWidth),
       m_minTrajectoryTimeSeconds(minTrajectoryTimeSeconds),
       m_latencySeconds(latencySeconds),
       m_map(map),
@@ -528,7 +526,7 @@ BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D& startState,
   cfg.sigmaD.acc = kSigmaDAcc;
   cfg.samplesCount = 40;
   cfg.minTime = m_minTrajectoryTimeSeconds;
-  cfg.maxTime = m_horizonSeconds + 10;
+  cfg.maxTime = 15;
   cfg.timeStep = 0.2;
 
   return FindBestTrajectories(startState, target, cfg, costFunction);
@@ -583,7 +581,7 @@ BestTrajectories Decider::BuildKeepDistanceTrajectory(
   cfg.sigmaD.acc = kSigmaDAcc;
   cfg.samplesCount = 40;
   cfg.minTime = m_minTrajectoryTimeSeconds;
-  cfg.maxTime = m_horizonSeconds + 20;
+  cfg.maxTime = 25;
   cfg.timeStep = 0.2;
 
   return FindBestTrajectories(startState, target, cfg, costFunction);
@@ -618,7 +616,7 @@ BestTrajectories Decider::BuildKeepSpeedTrajectory(const State2D& startState,
   cfg.sigmaD.acc = kSigmaDAcc;
   cfg.samplesCount = 40;
   cfg.minTime = m_minTrajectoryTimeSeconds;
-  cfg.maxTime = m_horizonSeconds + 2;
+  cfg.maxTime = 7;
   cfg.timeStep = 0.2;
 
   return FindBestTrajectories(startState, target, cfg, costFunction);
@@ -784,8 +782,6 @@ BestTrajectories Decider::ChooseBestTrajectory(
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 namespace {
-// ???
-const double kHorizonSeconds = 5;
 const double kReplanPeriodSeconds = 0.7;
 const double kAlgorithmLatencySeconds = 0.4;
 // 1 second latency of the algorithm, 50 points
@@ -800,7 +796,7 @@ Planner::Planner(const Map& map, double updatePeriodSeconds,
     : m_updatePeriod(updatePeriodSeconds),
       m_laneWidth(laneWidthMeters),
       m_map(map),
-      m_decider(kHorizonSeconds, laneWidthMeters, kMinTrajectoryTimeSeconds,
+      m_decider(laneWidthMeters, kMinTrajectoryTimeSeconds,
                 kAlgorithmLatencySeconds, m_map),
       m_trajectoryOffsetIdx(0),
       m_hasTrajectory(false),

@@ -42,9 +42,8 @@ class World {
 
 class Decider {
  public:
-  Decider(double horizonSeconds, double laneWidth,
-          double minTrajectoryTimeSeconds, double latencySeconds,
-          const Map& map);
+  Decider(double laneWidth, double minTrajectoryTimeSeconds,
+          double latencySeconds, const Map& map);
 
   BestTrajectories ChooseBestTrajectory(
       const State2D& startState, const std::vector<OtherCarSensor>& sensors);
