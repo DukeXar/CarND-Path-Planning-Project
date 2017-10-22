@@ -142,17 +142,17 @@ BestTrajectories FindBestTrajectories(const State2D& start,
   auto bestTrajectory = trajectories[bestIdx];
   bestTrajectory.cost = allCosts[bestIdx];
 
-  std::cout << "best trajectory=[";
-  std::cout << "s=["
+  std::cout << "Best trajectory:\n";
+  std::cout << "\ts=["
             << "s=" << goals[bestIdx].state.s.s
             << ", v=" << goals[bestIdx].state.s.v
-            << ", acc=" << goals[bestIdx].state.s.acc << "], ";
-  std::cout << "d=["
+            << ", acc=" << goals[bestIdx].state.s.acc << "]\n";
+  std::cout << "\td=["
             << "s=" << goals[bestIdx].state.d.s
             << ", v=" << goals[bestIdx].state.d.v
-            << ", acc=" << goals[bestIdx].state.d.acc << "], ";
-  std::cout << "time=" << bestTrajectory.time
-            << ", cost=" << bestTrajectory.cost << std::endl;
+            << ", acc=" << goals[bestIdx].state.d.acc << "]\n";
+  std::cout << "\ttime=" << bestTrajectory.time
+            << ", cost=" << bestTrajectory.cost << "\n";
 
   return bestTrajectory;
 }

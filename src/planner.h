@@ -52,7 +52,10 @@ class Decider {
       const State2D& startState, const std::vector<OtherCarSensor>& sensors);
 
  private:
+  enum class Mode { kKeepSpeed, kFollowVehicle, kChangingLane };
+
   double GetSafeLaneOffset() const;
+
   std::pair<double, double> GetSafeLaneOffsets(int laneIdx) const;
 
   double LimitAccelerationAndSpeed(const PolyFunction& sTraj,
@@ -64,23 +67,31 @@ class Decider {
                                              World& world);
   BestTrajectories BuildKeepDistanceTrajectory(const State2D& startState,
                                                int followingCarId,
+                                               double distanceToKeep,
                                                const WorldSnapshot& snapshot);
   BestTrajectories BuildKeepSpeedTrajectory(const State2D& startState,
                                             double targetSpeed);
 
+  BestTrajectories SwitchToKeepingSpeed(const State2D& startState);
+  BestTrajectories SwitchToFollowingVehicle(const State2D& startState,
+                                            int carId,
+                                            const WorldSnapshot& snapshot);
+
  private:
-  double m_horizonSeconds;
   double m_laneWidth;
   double m_minTrajectoryTimeSeconds;
   double m_latencySeconds;
   const Map& m_map;
 
-  int m_state;
+  Mode m_mode;
+
+  int m_currentLane;
 
   int m_followingCarId;
-  int m_currentLane;
   int m_targetLane;
+  bool m_changingLeft;
   double m_targetSpeed;
+
   int m_updateNumber;
 };
 
