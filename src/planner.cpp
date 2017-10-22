@@ -633,24 +633,8 @@ BestTrajectories Decider::ChooseBestTrajectory(
     const State2D& startState, const std::vector<OtherCarSensor>& sensors) {
   ++m_updateNumber;
 
-  // const auto outsideOfTheRoadPenalty = [this](
-  //     const PolyFunction& sTraj, const PolyFunction& dTraj, double
-  //     targetTime) {
-  //   return OutsideOfTheRoadPenalty(sTraj, dTraj, 0 + m_laneWidth / 8,
-  //                                  3 * m_laneWidth - m_laneWidth / 8,
-  //                                  targetTime);
-  // };
-
-  auto reactionTimePenalty = [](const PolyFunction& sTraj,
-                                const PolyFunction& dTraj,
-                                double targetTime) { return targetTime; };
-
   World world(sensors, m_laneWidth);
   const auto snapshot = world.Simulate(m_latencySeconds);
-
-  // using std::placeholders::_1;
-  // using std::placeholders::_2;
-  // using std::placeholders::_3;
 
   m_currentLane = DPosToCurrentLane(startState.d.s, m_laneWidth);
   const double currentLaneD = CurrentLaneToDPos(m_currentLane, m_laneWidth);
@@ -659,6 +643,97 @@ BestTrajectories Decider::ChooseBestTrajectory(
     m_targetLane = m_currentLane;
   }
 
+  if (m_state == kChangingLaneLeftState || m_state == kChangingLaneRightState) {
+    bool areWeThereYet =
+        (m_currentLane == m_targetLane) &&
+        (std::abs(currentLaneD - startState.d.s) < m_laneWidth / 8);
+
+    const char* dest = (m_state == kChangingLaneLeftState) ? "left" : "right";
+
+    if (!areWeThereYet) {
+      std::cout << "Changing lane " << dest << ", targetSpeed=" << m_targetSpeed
+                << std::endl;
+      return BuildLaneSwitchTrajectory(startState, m_targetLane, m_targetSpeed,
+                                       world);
+    }
+
+    std::cout << "Reached the target " << dest << " lane" << std::endl;
+  }
+
+  std::vector<std::pair<int, OtherCar>> speeds;
+  OtherCar currentLaneCar;
+  bool currentLaneOccupied = false;
+  OtherCar closestCar;
+
+  if (snapshot.GetClosestCar(m_currentLane, startState.s.s, &closestCar)) {
+    speeds.push_back({m_currentLane, closestCar});
+    currentLaneCar = closestCar;
+    currentLaneOccupied = true;
+  }
+
+  if (m_currentLane > 0) {
+    if (snapshot.GetClosestCar(m_currentLane - 1, startState.s.s,
+                               &closestCar)) {
+      speeds.push_back({m_currentLane - 1, closestCar});
+    }
+  }
+
+  if (m_currentLane < 2) {
+    if (snapshot.GetClosestCar(m_currentLane + 1, startState.s.s,
+                               &closestCar)) {
+      speeds.push_back({m_currentLane + 1, closestCar});
+    }
+  }
+
+  auto maxSpeedLane = std::max_element(
+      begin(speeds), end(speeds), [](const std::pair<int, OtherCar>& p1,
+                                     const std::pair<int, OtherCar>& p2) {
+        return p1.second.speed < p2.second.speed;
+      });
+
+  if (maxSpeedLane == end(speeds)) {
+    // Road is free so far
+    m_state = kKeepSpeedState;
+  } else {
+    if (!currentLaneOccupied) {
+      m_state = kKeepSpeedState;
+    } else {
+      double distance = currentLaneCar.fnPos.s - startState.s.s;
+      if (distance <= kOtherVehicleMonitorDistance) {
+        if (maxSpeedLane->first == m_currentLane) {
+          m_state = kFollowVehicleState;
+          m_followingCarId = currentLaneCar.id;
+        } else {
+          m_state = maxSpeedLane->first < m_currentLane
+                        ? kChangingLaneLeftState
+                        : kChangingLaneRightState;
+          m_targetLane = maxSpeedLane->first;
+          m_targetSpeed = startState.s.v;
+        }
+      } else {
+        m_state = kKeepSpeedState;
+        m_followingCarId = -1;
+      }
+    }
+  }
+
+  if (m_state == kKeepSpeedState) {
+    const double targetKeepSpeed = MiphToMs(48);
+    return BuildKeepSpeedTrajectory(startState, targetKeepSpeed);
+  }
+
+  if (m_state == kFollowVehicleState) {
+    return BuildKeepDistanceTrajectory(startState, m_followingCarId, snapshot);
+  }
+
+  if (m_state == kChangingLaneLeftState || m_state == kChangingLaneRightState) {
+    return BuildLaneSwitchTrajectory(startState, m_targetLane, m_targetSpeed,
+                                     world);
+  }
+
+  throw std::runtime_error("Must not reach");
+
+  /*
   switch (m_state) {
     case kKeepSpeedState: {
       OtherCar closestCar;
@@ -715,20 +790,8 @@ BestTrajectories Decider::ChooseBestTrajectory(
       }
     } break;
 
-    case kChangingLaneRightState: {
-      if (m_currentLane == m_targetLane &&
-          (std::abs(currentLaneD - startState.d.s) < m_laneWidth / 8)) {
-        std::cout << "Reached the target (right) lane" << std::endl;
-        m_state = kKeepSpeedState;
-      }
-    } break;
-
+    case kChangingLaneRightState:
     case kChangingLaneLeftState: {
-      if (m_currentLane == m_targetLane &&
-          (std::abs(currentLaneD - startState.d.s) < m_laneWidth / 8)) {
-        std::cout << "Reached the target (left) lane" << std::endl;
-        m_state = kKeepSpeedState;
-      }
     } break;
 
     default:
@@ -739,8 +802,8 @@ BestTrajectories Decider::ChooseBestTrajectory(
   switch (m_state) {
     case kKeepSpeedState: {
       std::cout << "Keeping speed" << std::endl;
-      const double targetSpeed = MiphToMs(48);
-      return BuildKeepSpeedTrajectory(startState, targetSpeed);
+      const double targetKeepSpeed = MiphToMs(48);
+      return BuildKeepSpeedTrajectory(startState, targetKeepSpeed);
     } break;
 
     case kFollowVehicleState: {
@@ -777,6 +840,7 @@ BestTrajectories Decider::ChooseBestTrajectory(
   }
 
   throw std::runtime_error("Must not reach");
+  */
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
