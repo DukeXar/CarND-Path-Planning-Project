@@ -3,6 +3,7 @@
 #include <array>
 #include <chrono>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <stdexcept>
 #include <unordered_map>
@@ -587,7 +588,7 @@ BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D& startState,
   cfg.sigmaD.acc = kSigmaDAcc;
   cfg.samplesCount = 10;
   cfg.minTime = m_minTrajectoryTimeSeconds;
-  cfg.maxTime = 5;
+  cfg.maxTime = 3;
   cfg.timeStep = 0.2;
 
   auto result = FindBestTrajectories(startState, target, cfg, costFunction);
@@ -683,7 +684,7 @@ BestTrajectories Decider::BuildKeepSpeedTrajectory(const State2D& startState,
   cfg.sigmaD.acc = kSigmaDAcc;
   cfg.samplesCount = 40;
   cfg.minTime = m_minTrajectoryTimeSeconds;
-  cfg.maxTime = 7;
+  cfg.maxTime = 20;
   cfg.timeStep = 0.2;
 
   return FindBestTrajectories(startState, target, cfg, costFunction);
@@ -695,6 +696,74 @@ double Decider::LimitAccelerationAndSpeed(const PolyFunction& sTraj,
   return CartesianAccelerationLimitCost(
       sTraj, dTraj, targetTime, kMaxAccelerationMs2, kMaxSpeedMs, m_map);
 }
+
+namespace {
+
+void DisplayCarsByLane(const WorldSnapshot& snapshot) {
+  std::vector<int> indices;
+  for (const auto& laneAndCarIds : snapshot.GetAllCarsByLane()) {
+    indices.push_back(laneAndCarIds.first);
+  }
+  std::sort(begin(indices), end(indices));
+
+  std::cout << "Cars by lane: \n";
+
+  for (int laneIdx : indices) {
+    const auto& laneAndCarIds = *(snapshot.GetAllCarsByLane().find(laneIdx));
+    int col = 1;
+    std::cout << "Lane " << laneAndCarIds.first;
+    std::cout << "\t id  speed  pos   |\n";
+    for (const auto& carId : laneAndCarIds.second) {
+      const auto& car = snapshot.GetCarById(carId);
+      std::cout << "\t" << std::setw(3) << car.id << ' ';
+      std::cout << std::setw(6) << std::setprecision(2) << std::fixed
+                << car.speed << ' ';
+      std::cout << std::setw(7) << std::setprecision(2) << std::fixed
+                << car.fnPos.s << '|';
+      if (col % 4 == 0) {
+        std::cout << "\n";
+      }
+      ++col;
+    }
+    std::cout << "\n";
+  }
+  std::cout << std::endl;
+}
+
+typedef std::unordered_map<int, std::pair<bool, OtherCar>> LaneToOccupancy;
+
+void DisplayLaneOccupancy(const LaneToOccupancy& speeds) {
+  std::vector<int> indices;
+  for (const auto& pp : speeds) {
+    indices.push_back(pp.first);
+  }
+  std::sort(begin(indices), end(indices));
+
+  std::cout << "Lanes status:\n";
+  for (int idx : indices) {
+    std::cout << "\t" << std::setw(6) << idx << "|";
+  }
+  std::cout << "\n";
+  for (int idx : indices) {
+    const auto& pp = *speeds.find(idx);
+    std::cout << "\t";
+    if (pp.second.first) {
+      std::cout << "   XXX|";
+    } else {
+      std::cout << "   ...|";
+    }
+  }
+  std::cout << "\n";
+  for (int idx : indices) {
+    const auto& pp = *speeds.find(idx);
+    std::cout << "\t";
+    std::cout << std::setw(6) << std::setprecision(2) << std::fixed
+              << pp.second.second.speed << "|";
+  }
+  std::cout << std::endl;
+}
+
+}  // namespace
 
 BestTrajectories Decider::ChooseBestTrajectory(
     const State2D& startState, const std::vector<OtherCarSensor>& sensors) {
@@ -709,17 +778,7 @@ BestTrajectories Decider::ChooseBestTrajectory(
   World world(sensors, m_laneWidth);
   const auto snapshot = world.Simulate(m_latencySeconds);
 
-  std::cout << "Cars by lane: \n";
-  for (const auto& laneAndCarIds : snapshot.GetAllCarsByLane()) {
-    std::cout << "Lane " << laneAndCarIds.first << "\n";
-    for (const auto& carId : laneAndCarIds.second) {
-      const auto& car = snapshot.GetCarById(carId);
-      std::cout << "\t" << car.id << "\t" << car.speed << "\t" << car.fnPos.s
-                << "\n";
-    }
-    std::cout << "\n";
-  }
-  std::cout << std::endl;
+  DisplayCarsByLane(snapshot);
 
   if (m_state == kChangingLaneLeftState || m_state == kChangingLaneRightState) {
     bool areWeThereYet =
@@ -738,7 +797,6 @@ BestTrajectories Decider::ChooseBestTrajectory(
     std::cout << "Reached the target " << dest << " lane" << std::endl;
   }
 
-  typedef std::unordered_map<int, std::pair<bool, OtherCar>> LaneToOccupancy;
   LaneToOccupancy speeds;
 
   const int leftLaneIdx = std::max(0, m_currentLane - 1);
@@ -756,12 +814,7 @@ BestTrajectories Decider::ChooseBestTrajectory(
     }
   }
 
-  std::cout << "Lanes status:\n";
-  for (const auto& pp : speeds) {
-    std::cout << pp.first << "\t occupied=" << pp.second.first
-              << "\t speed=" << pp.second.second.speed << "\n";
-  }
-  std::cout << std::endl;
+  DisplayLaneOccupancy(speeds);
 
   auto maxSpeedLane = std::max_element(
       begin(speeds), end(speeds), [](const LaneToOccupancy::value_type& p1,
@@ -794,14 +847,19 @@ BestTrajectories Decider::ChooseBestTrajectory(
         m_state = kKeepSpeedState;
         m_followingCarId = -1;
       } else {
+        double targetSpeed = startState.s.v;
+        if (maxSpeedLane->second.first) {
+          targetSpeed = maxSpeedLane->second.second.speed;
+        }
         auto trajectory = BuildLaneSwitchTrajectory(
-            startState, maxSpeedLane->first, startState.s.v, world);
+            startState, maxSpeedLane->first, targetSpeed, world);
         if (trajectory.cost < 200) {
           m_state = maxSpeedLane->first < m_currentLane
                         ? kChangingLaneLeftState
                         : kChangingLaneRightState;
           m_targetLane = maxSpeedLane->first;
-          m_targetSpeed = startState.s.v;
+          // m_targetSpeed = startState.s.v;
+          m_targetSpeed = targetSpeed;
           return trajectory;
         } else {
           std::cout << "Too hard to change lane - following car instead"
@@ -832,7 +890,7 @@ BestTrajectories Decider::ChooseBestTrajectory(
 
 namespace {
 const double kReplanPeriodSeconds = 0.7;
-const double kAlgorithmLatencySeconds = 0.4;
+const double kAlgorithmLatencySeconds = 1;
 // 1 second latency of the algorithm, 50 points
 const int kPointsToKeep = kAlgorithmLatencySeconds / 0.02;
 const double kMaxUpdateLatencySeconds = 2;
@@ -906,6 +964,8 @@ std::vector<Point> Planner::Update(const CarEx& car,
     startState.d.acc =
         m_plannedTrajectories.d.Eval3(nextPosIdx * m_updatePeriod);
 
+    std::cout << std::setfill('-') << std::setw(80) << '\n'
+              << std::setfill(' ');
     std::cout << "Start ";
     std::cout << "s=["
               << "s=" << startState.s.s << ", v=" << startState.s.v
