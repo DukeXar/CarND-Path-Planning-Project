@@ -2,6 +2,10 @@ project(Path_Planning)
 
 cmake_minimum_required (VERSION 3.5)
 
+if(NOT CMAKE_BUILD_TYPE) 
+    set(CMAKE_BUILD_TYPE Release)
+endif(NOT CMAKE_BUILD_TYPE)
+
 add_definitions(-std=c++11)
 
 set(CXX_FLAGS "-Wall")
