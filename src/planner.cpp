@@ -632,6 +632,12 @@ double Decider::LimitAccelerationAndSpeed(const PolyFunction& sTraj,
 BestTrajectories Decider::ChooseBestTrajectory(
     const State2D& startState, const std::vector<OtherCarSensor>& sensors) {
   ++m_updateNumber;
+  m_currentLane = DPosToCurrentLane(startState.d.s, m_laneWidth);
+  const double currentLaneD = CurrentLaneToDPos(m_currentLane, m_laneWidth);
+
+  if (m_targetLane == -1) {
+    m_targetLane = m_currentLane;
+  }
 
   World world(sensors, m_laneWidth);
   const auto snapshot = world.Simulate(m_latencySeconds);
@@ -647,13 +653,6 @@ BestTrajectories Decider::ChooseBestTrajectory(
     std::cout << "\n";
   }
   std::cout << std::endl;
-
-  m_currentLane = DPosToCurrentLane(startState.d.s, m_laneWidth);
-  const double currentLaneD = CurrentLaneToDPos(m_currentLane, m_laneWidth);
-
-  if (m_targetLane == -1) {
-    m_targetLane = m_currentLane;
-  }
 
   if (m_state == kChangingLaneLeftState || m_state == kChangingLaneRightState) {
     bool areWeThereYet =
