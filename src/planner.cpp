@@ -68,8 +68,6 @@ WorldSnapshot::WorldSnapshot(const std::vector<OtherCar>& sensors,
     if (lane >= 0) {
       m_cars[lane].push_back(car.id);
       m_byId[car.id] = car;
-      //      std::cout << "lane=" << lane << ", d=" << car.fnPos.d << ", s=" <<
-      //      car.fnPos.s << std::endl;
     }
   }
 
@@ -80,19 +78,6 @@ WorldSnapshot::WorldSnapshot(const std::vector<OtherCar>& sensors,
                        m_byId.find(id2)->second.fnPos.s;
               });
   }
-
-  //  std::cout << "Cars by lane: \n";
-  //  for (const auto & laneAndCars : m_cars) {
-  //    std::cout << laneAndCars.first << "=[";
-  //    for (const auto & car : laneAndCars.second) {
-  //      double v = std::sqrt(car.speed.x * car.speed.x + car.speed.y *
-  //      car.speed.y);
-  //      std::cout << car.id << "(s=" << car.fnPos.s << ", v=" << v << ")" <<
-  //      ",";
-  //    }
-  //    std::cout << "]\n";
-  //  }
-  //  std::cout << std::endl;
 }
 
 bool WorldSnapshot::GetClosestCar(int laneIdx, double s,
@@ -485,11 +470,6 @@ const double kMaxSpeedMs = MiphToMs(50);
 const double kTargetKeepSpeed = MiphToMs(48);
 const double kOtherVehicleMonitorDistance = 50;  // 100 was too much
 
-// const int kKeepSpeedState = 0;
-// const int kFollowVehicleState = 1;
-// const int kChangingLaneLeftState = 2;
-// const int kChangingLaneRightState = 3;
-
 Decider::Decider(double laneWidth, double minTrajectoryTimeSeconds,
                  double latencySeconds, const Map& map)
     : m_laneWidth(laneWidth),
@@ -558,6 +538,8 @@ BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D& startState,
                                   world, m_map, minDistanceM,
                                   std::vector<int>{targetLane, m_currentLane});
   };
+
+  // TODO we need to keep same minimum distance by S as we do in other mode
 
   WeightedFunctions weighted{
       {500, stayInLanesPenalty},
@@ -642,6 +624,8 @@ BestTrajectories Decider::BuildKeepSpeedTrajectory(const State2D& startState,
   WeightedFunctions weighted{
       {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
       {20, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
+      // TODO would the cost function that keeps closer to the middle of the
+      // lane work better?
       {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, safeOffsets.first,
                       safeOffsets.second, _3)},
       {50, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
