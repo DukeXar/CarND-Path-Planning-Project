@@ -483,9 +483,7 @@ Decider::Decider(double laneWidth, double minTrajectoryTimeSeconds,
       m_targetSpeed(0),
       m_updateNumber(0) {}
 
-double Decider::GetSafeLaneOffset() const {
-  return m_laneWidth / 2 - m_laneWidth / 8;
-}
+double Decider::GetSafeLaneOffset() const { return 0.79; }
 
 std::pair<double, double> Decider::GetSafeLaneOffsets(int laneIdx) const {
   double laneD = CurrentLaneToDPos(laneIdx, m_laneWidth);
@@ -589,7 +587,7 @@ BestTrajectories Decider::BuildKeepDistanceTrajectory(
 
   WeightedFunctions weighted{
       {3, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
-      {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
+      {10, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
       {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, safeOffsets.first,
                       safeOffsets.second, _3)},
       {300, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
@@ -601,7 +599,7 @@ BestTrajectories Decider::BuildKeepDistanceTrajectory(
   cfg.sigmaS.s = kSigmaSS;
   cfg.sigmaS.v = kSigmaSV;
   cfg.sigmaS.acc = kSigmaSAcc;
-  cfg.sigmaD.s = kSigmaDS;
+  cfg.sigmaD.s = 0.5;
   cfg.sigmaD.v = kSigmaDV;
   cfg.sigmaD.acc = kSigmaDAcc;
   cfg.samplesCount = 40;
@@ -758,7 +756,7 @@ BestTrajectories Decider::ChooseBestTrajectory(
   World world(sensors, m_laneWidth);
   const auto snapshot = world.Simulate(m_latencySeconds);
 
-  DisplayCarsByLane(snapshot);
+  // DisplayCarsByLane(snapshot);
 
   if (m_mode == Mode::kChangingLane) {
     bool areWeThereYet =
@@ -794,7 +792,7 @@ BestTrajectories Decider::ChooseBestTrajectory(
     }
   }
 
-  DisplayLaneOccupancy(speeds);
+  // DisplayLaneOccupancy(speeds);
 
   auto maxSpeedLane = std::max_element(
       begin(speeds), end(speeds), [](const LaneToOccupancy::value_type& p1,
@@ -899,9 +897,24 @@ std::vector<Point> Planner::Update(const CarEx& car,
   //  car.fp.d << ", speed=" << car.car.speed << ", phi=" << car.car.yaw <<
   //  (isTimeToReplan ? ", replanning" : ",") << std::endl;
 
-  //  std::cout << "idx=" << currentPosIdx << ", s=" << car.fp.s << ", speed="
-  //  << car.car.speed << ", up=" << unprocessedPath.size()
-  //    << (isTimeToReplan ? ", replanning" : ",") << std::endl;
+  std::cout << "idx=" << currentPosIdx << ", s=" << car.fp.s
+            << ", d=" << car.fp.d << ", speed=" << car.car.speed
+            << ", up=" << unprocessedPath.size()
+            << (isTimeToReplan ? ", replanning" : ",") << std::endl;
+
+  if (m_hasTrajectory) {
+    ssize_t nextPosIdx = currentPosIdx - m_trajectoryOffsetIdx;
+    double expectedS =
+        m_plannedTrajectories.s.Eval(nextPosIdx * m_updatePeriod);
+    double expectedD =
+        m_plannedTrajectories.d.Eval(nextPosIdx * m_updatePeriod);
+
+    if (std::abs(expectedS - car.fp.s) > 0.5 ||
+        (std::abs(expectedD - car.fp.d) > 0.5)) {
+      std::cout << "WOW! expected s=" << expectedS << ", d=" << expectedD
+                << std::endl;
+    }
+  }
 
   if (!isTimeToReplan) {
     return unprocessedPath;
@@ -932,7 +945,7 @@ std::vector<Point> Planner::Update(const CarEx& car,
               << "s=" << startState.s.s << ", v=" << startState.s.v
               << ", acc=" << startState.s.acc << "]\n";
     std::cout << "d=["
-              << "s=" << startState.d.s << ", v=" << startState.d.v
+              << "d=" << startState.d.s << ", v=" << startState.d.v
               << ", acc=" << startState.d.acc << "]\n";
   }
 
