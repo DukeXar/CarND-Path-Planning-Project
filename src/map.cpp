@@ -132,6 +132,7 @@ void Map::AddWaypoint(const Point &pt, const CurvePoint &cp) {
 void ReadMap(const std::string &filename, Map &map) {
   std::ifstream in_map_(filename.c_str(), std::ifstream::in);
   std::string line;
+
   while (getline(in_map_, line)) {
     std::istringstream iss(line);
     Point pt;
@@ -140,6 +141,12 @@ void ReadMap(const std::string &filename, Map &map) {
     iss >> cp.s >> cp.dx >> cp.dy;
     map.AddWaypoint(pt, cp);
   }
+
+  // TODO Beware! Ugly hack!
+  CurvePoint cp = map.get_waypoints_fn()[0];
+  cp.s = 6945.554;
+  map.AddWaypoint(map.get_waypoints_xy()[0], cp);
+
   map.Freeze();
 }
 
