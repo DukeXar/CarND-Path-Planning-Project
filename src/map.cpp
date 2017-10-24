@@ -167,10 +167,11 @@ void Map::Freeze() {
     flattenedDy[i] = m_waypointsFn[i].dy;
   }
 
-  m_splineX.set_points(flattenedS, flattenedX);
-  m_splineY.set_points(flattenedS, flattenedY);
-  m_splineDx.set_points(flattenedS, flattenedDx);
-  m_splineDy.set_points(flattenedS, flattenedDy);
+  bool useCubic = true;
+  m_splineX.set_points(flattenedS, flattenedX, useCubic);
+  m_splineY.set_points(flattenedS, flattenedY, useCubic);
+  m_splineDx.set_points(flattenedS, flattenedDx, useCubic);
+  m_splineDy.set_points(flattenedS, flattenedDy, useCubic);
 
   m_splinesReady = true;
 }
