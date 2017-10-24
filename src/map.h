@@ -24,16 +24,16 @@ struct Car {
 
 double Distance(double x1, double y1, double x2, double y2);
 
+// This is not quite good map, as it assumes that map is circle and it has
+// hardcoded length inside, but it should be okay for the project.
 class Map {
  public:
   void AddWaypoint(const Point &pt, const CurvePoint &cp);
   void Freeze();
 
-  const std::vector<Point> &get_waypoints_xy() { return m_waypointsXY; }
-  const std::vector<CurvePoint> &get_waypoints_fn() { return m_waypointsFn; }
-
-  Point FromFrenet(const FrenetPoint &pt) const;
-  std::vector<Point> FromFrenet(const std::vector<FrenetPoint> &pt) const;
+  Point FromFrenet(const FrenetPoint &pt, bool smooth = true) const;
+  std::vector<Point> FromFrenet(const std::vector<FrenetPoint> &pt,
+                                bool smooth = true) const;
   FrenetPoint ToFrenet(const Car &car) const;
   int ClosestWaypoint(const Point &pt) const;
 
@@ -43,7 +43,7 @@ class Map {
   std::vector<Point> m_waypointsXY;
   std::vector<CurvePoint> m_waypointsFn;
 
-  tk::spline m_splineX, m_splineY, m_splineDx, m_splineDy;
+  tk::spline m_splineX[2], m_splineY[2], m_splineDx[2], m_splineDy[2];
   bool m_splinesReady = false;
 };
 

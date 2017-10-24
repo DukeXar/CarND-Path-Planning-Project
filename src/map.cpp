@@ -90,17 +90,17 @@ FrenetPoint ToFrenet(double x, double y, double theta,
   return {frenet_s, frenet_d};
 }
 
-Point Map::FromFrenet(const FrenetPoint &pt) const {
+Point Map::FromFrenet(const FrenetPoint &pt, bool smooth) const {
   if (!m_splinesReady) {
     throw std::runtime_error("Freeze() must be called before");
   }
-  double x = m_splineX(pt.s) + pt.d * m_splineDx(pt.s);
-  double y = m_splineY(pt.s) + pt.d * m_splineDy(pt.s);
+  double x = m_splineX[smooth](pt.s) + pt.d * m_splineDx[smooth](pt.s);
+  double y = m_splineY[smooth](pt.s) + pt.d * m_splineDy[smooth](pt.s);
   return {x, y};
 }
 
-std::vector<Point> Map::FromFrenet(
-    const std::vector<FrenetPoint> &points) const {
+std::vector<Point> Map::FromFrenet(const std::vector<FrenetPoint> &points,
+                                   bool smooth) const {
   if (!m_splinesReady) {
     throw std::runtime_error("Freeze() must be called before");
   }
@@ -109,7 +109,7 @@ std::vector<Point> Map::FromFrenet(
   result.reserve(points.size());
 
   for (const auto &pt : points) {
-    result.push_back(FromFrenet(pt));
+    result.push_back(FromFrenet(pt, smooth));
   }
 
   return result;
@@ -167,11 +167,13 @@ void Map::Freeze() {
     flattenedDy[i] = m_waypointsFn[i].dy;
   }
 
-  bool useCubic = true;
-  m_splineX.set_points(flattenedS, flattenedX, useCubic);
-  m_splineY.set_points(flattenedS, flattenedY, useCubic);
-  m_splineDx.set_points(flattenedS, flattenedDx, useCubic);
-  m_splineDy.set_points(flattenedS, flattenedDy, useCubic);
+  for (int i = 0; i < 2; ++i) {
+    bool useCubic = i > 0;
+    m_splineX[i].set_points(flattenedS, flattenedX, useCubic);
+    m_splineY[i].set_points(flattenedS, flattenedY, useCubic);
+    m_splineDx[i].set_points(flattenedS, flattenedDx, useCubic);
+    m_splineDy[i].set_points(flattenedS, flattenedDy, useCubic);
+  }
 
   m_splinesReady = true;
 }
