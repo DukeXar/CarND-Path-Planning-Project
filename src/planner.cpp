@@ -879,40 +879,46 @@ std::vector<Point> Planner::Update(const CarEx& car,
                                    const std::vector<Point>& unprocessedPath,
                                    const FrenetPoint& endPath,
                                    const std::vector<OtherCarSensor>& sensors) {
-  bool isTimeToReplan = m_updateNumber == 0;
-
   if (m_updateNumber == 0) {
     m_prevUpdateTime = std::chrono::high_resolution_clock::now();
   }
 
-  ssize_t currentPosIdx = m_plannedPath.size() - unprocessedPath.size();
+  // Index of the next position to move to.
+  ssize_t nextPosIdx = m_plannedPath.size() - unprocessedPath.size();
 
-  bool continueTrajectory = true;
+  double currentTrajectoryTime =
+      (nextPosIdx > 0) ? (nextPosIdx - 1) * m_updatePeriod : 0;
 
-  if (currentPosIdx * m_updatePeriod > kReplanPeriodSeconds) {
-    isTimeToReplan = true;
-  }
+  bool isTimeToReplan =
+      (m_updateNumber == 0) || (currentTrajectoryTime >= kReplanPeriodSeconds);
 
-  //  std::cout << "idx=" << currentPosIdx << ", s=" << car.fp.s << ", d=" <<
-  //  car.fp.d << ", speed=" << car.car.speed << ", phi=" << car.car.yaw <<
-  //  (isTimeToReplan ? ", replanning" : ",") << std::endl;
+  // We can continue only if we had any points processed.
+  bool continueTrajectory = (nextPosIdx > 0) && !m_plannedPath.empty();
 
-  std::cout << "idx=" << currentPosIdx << ", s=" << car.fp.s
+  std::cout << "nextIdx=" << nextPosIdx << ", s=" << car.fp.s
             << ", d=" << car.fp.d << ", speed=" << car.car.speed
+            << ", x=" << car.car.pos.x << ", y=" << car.car.pos.y
             << ", up=" << unprocessedPath.size()
             << (isTimeToReplan ? ", replanning" : ",") << std::endl;
 
-  if (m_hasTrajectory) {
-    ssize_t nextPosIdx = currentPosIdx - m_trajectoryOffsetIdx;
-    double expectedS =
-        m_plannedTrajectories.s.Eval(nextPosIdx * m_updatePeriod);
-    double expectedD =
-        m_plannedTrajectories.d.Eval(nextPosIdx * m_updatePeriod);
+  if (continueTrajectory) {
+    double expectedS = m_plannedPath[nextPosIdx - 1].fn.s.s;
+    double expectedD = m_plannedPath[nextPosIdx - 1].fn.d.s;
+    double expectedX = m_plannedPath[nextPosIdx - 1].pt.x;
+    double expectedY = m_plannedPath[nextPosIdx - 1].pt.y;
 
     if (std::abs(expectedS - car.fp.s) > 0.5 ||
         (std::abs(expectedD - car.fp.d) > 0.5)) {
-      std::cout << "WOW! expected s=" << expectedS << ", d=" << expectedD
-                << std::endl;
+      std::cout << "FN CHECKPOINT FAILED! expected s=" << expectedS
+                << ", d=" << expectedD << ", got s=" << car.fp.s
+                << ", d=" << car.fp.d << std::endl;
+    }
+
+    if (std::abs(expectedX - car.car.pos.x) > 0.5 ||
+        (std::abs(expectedY - car.car.pos.y) > 0.5)) {
+      std::cout << "XY CHECKPOINT FAILED! expected x=" << expectedX
+                << ", y=" << expectedY << ", got x=" << car.car.pos.x
+                << ", y=" << car.car.pos.y << std::endl;
     }
   }
 
@@ -924,23 +930,16 @@ std::vector<Point> Planner::Update(const CarEx& car,
 
   State2D startState{State{car.fp.s, car.car.speed, 0}, State{car.fp.d, 0, 0}};
 
-  if (m_hasTrajectory && continueTrajectory) {
-    ssize_t nextPosIdx = currentPosIdx + kPointsToKeep - m_trajectoryOffsetIdx;
+  if (continueTrajectory) {
+    // When continueTrajectory is set, nextPosIdx > 0
+    ssize_t startPosIdx = nextPosIdx - 1 + kPointsToKeep;
 
-    startState.s.s = m_plannedTrajectories.s.Eval(nextPosIdx * m_updatePeriod);
-    startState.s.v = m_plannedTrajectories.s.Eval2(nextPosIdx * m_updatePeriod);
-    startState.s.acc =
-        m_plannedTrajectories.s.Eval3(nextPosIdx * m_updatePeriod);
-
-    startState.d.s = m_plannedTrajectories.d.Eval(nextPosIdx * m_updatePeriod);
-    startState.d.v = m_plannedTrajectories.d.Eval2(nextPosIdx * m_updatePeriod);
-    startState.d.acc =
-        m_plannedTrajectories.d.Eval3(nextPosIdx * m_updatePeriod);
+    startState = m_plannedPath[startPosIdx].fn;
 
     std::cout << std::setfill('-') << std::setw(80) << '\n'
               << std::setfill(' ');
-    std::cout << "Starting trajectory at time offset "
-              << nextPosIdx * m_updatePeriod << "\n";
+    std::cout << "Starting trajectory at " << startPosIdx << ", time offset "
+              << startPosIdx * m_updatePeriod << "\n";
     std::cout << "s=["
               << "s=" << startState.s.s << ", v=" << startState.s.v
               << ", acc=" << startState.s.acc << "]\n";
@@ -949,54 +948,46 @@ std::vector<Point> Planner::Update(const CarEx& car,
               << ", acc=" << startState.d.acc << "]\n";
   }
 
-  auto start = std::chrono::high_resolution_clock::now();
-  auto bestTrajectory = m_decider.ChooseBestTrajectory(startState, sensors);
   using sec = std::chrono::duration<double>;
-  auto delta = std::chrono::duration_cast<sec>(
-      std::chrono::high_resolution_clock::now() - start);
-  std::cout
-      << "Decider time=" << delta.count() << ", update time delta="
-      << (std::chrono::duration_cast<sec>(start - m_prevUpdateTime).count() -
-          currentPosIdx * m_updatePeriod)
-      << "\n"
-      << std::setfill('-') << std::setw(80) << '\n'
-      << std::setfill(' ') << std::endl;
-
+  auto start = std::chrono::high_resolution_clock::now();
+  auto updatePrecision =
+      std::chrono::duration_cast<sec>(start - m_prevUpdateTime).count() -
+      currentTrajectoryTime;
   m_prevUpdateTime = start;
 
-  std::vector<Point> planned;
+  auto bestTrajectory = m_decider.ChooseBestTrajectory(startState, sensors);
+
+  auto deciderTime = std::chrono::duration_cast<sec>(
+      std::chrono::high_resolution_clock::now() - start);
+
+  std::cout << "Decider time=" << deciderTime.count()
+            << ", update time precision=" << updatePrecision << "\n";
+
+  std::cout << std::setfill('-') << std::setw(80) << '\n'
+            << std::setfill(' ') << std::endl;
+
+  std::vector<FullState> planned;
   if (continueTrajectory &&
-      (currentPosIdx + kPointsToKeep - 1 < m_plannedPath.size())) {
+      (nextPosIdx + kPointsToKeep - 1 < m_plannedPath.size())) {
     // append points from previous trajectory so that transition between
     // trajectories would be smooth
-    planned.insert(planned.begin(), m_plannedPath.begin() + currentPosIdx,
-                   m_plannedPath.begin() + currentPosIdx + kPointsToKeep);
+    planned.insert(planned.begin(), m_plannedPath.begin() + nextPosIdx,
+                   m_plannedPath.begin() + nextPosIdx + kPointsToKeep - 1);
     m_trajectoryOffsetIdx = planned.size();
   }
 
-  std::vector<FrenetPoint> fnPoints;
-
   for (int i = 0; i < bestTrajectory.time / m_updatePeriod; ++i) {
-    FrenetPoint pt = car.fp;
-    pt.s = bestTrajectory.s.Eval(i * m_updatePeriod);
-    pt.d = bestTrajectory.d.Eval(i * m_updatePeriod);
-    fnPoints.push_back(pt);
+    double t = i * m_updatePeriod;
+    State2D fn;
+    fn.s.s = bestTrajectory.s.Eval(t);
+    fn.s.v = bestTrajectory.s.Eval2(t);
+    fn.s.acc = bestTrajectory.s.Eval3(t);
+    fn.d.s = bestTrajectory.d.Eval(t);
+    fn.d.v = bestTrajectory.d.Eval2(t);
+    fn.d.acc = bestTrajectory.d.Eval3(t);
+    Point pt = m_map.FromFrenet(FrenetPoint{fn.s.s, fn.d.s});
+    planned.push_back(FullState{fn, pt});
   }
-
-  // // Linear trajectory for testing purposes
-  //  for (int i = 0; i < 5 / m_updatePeriod; ++i) {
-  //    FrenetPoint pt = car.fp;
-  //    pt.s += m_updatePeriod * i * 30;
-  //    pt.d = CurrentLaneToDPos(1, m_laneWidth);
-  //    //pt.s = bestTrajectory.s.Eval(i * m_updatePeriod);
-  //    //pt.d = bestTrajectory.d.Eval(i * m_updatePeriod);
-  //    fnPoints.push_back(pt);
-  //    //planned.push_back(m_map.FromFrenetLinear(pt));
-  //    planned.push_back(m_map.FromFrenet(pt));
-  //  }
-
-  std::vector<Point> newPlanned = m_map.FromFrenet(fnPoints);
-  planned.insert(planned.end(), newPlanned.begin(), newPlanned.end());
 
   //  std::cout << "# " << m_updateNumber << std::endl;
   //  for (int i = 2; i < planned.size(); ++i) {
@@ -1019,8 +1010,11 @@ std::vector<Point> Planner::Update(const CarEx& car,
   //  std::cout << std::endl;
 
   m_plannedPath = planned;
-  m_plannedTrajectories = bestTrajectory;
-  m_hasTrajectory = true;
   m_updateNumber++;
-  return m_plannedPath;
+
+  std::vector<Point> result;
+  for (const auto& state : m_plannedPath) {
+    result.push_back(state.pt);
+  }
+  return result;
 }

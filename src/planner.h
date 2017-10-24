@@ -110,10 +110,18 @@ class Planner {
   const double m_laneWidth;
   Map m_map;
   Decider m_decider;
-  std::vector<Point> m_plannedPath;
-  BestTrajectories m_plannedTrajectories;
+
+  struct FullState {
+    State2D fn;
+    Point pt;
+  };
+
+  std::vector<FullState> m_plannedPath;
+
+  // BestTrajectories m_plannedTrajectories;
   size_t m_trajectoryOffsetIdx;
   bool m_hasTrajectory;
+
   unsigned m_updateNumber;
   std::chrono::high_resolution_clock::time_point m_prevUpdateTime;
 };
