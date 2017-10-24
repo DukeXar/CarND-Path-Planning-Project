@@ -97,8 +97,7 @@ class Decider {
 
 class Planner {
  public:
-  explicit Planner(const Map& map, double updatePeriodS,
-                   double laneWidthMeters);
+  explicit Planner(const Map& map);
 
   std::vector<Point> Update(const CarEx& car,
                             const std::vector<Point>& unprocessedPath,
@@ -118,7 +117,6 @@ class Planner {
 
   std::vector<FullState> m_plannedPath;
 
-  // BestTrajectories m_plannedTrajectories;
   size_t m_trajectoryOffsetIdx;
   bool m_hasTrajectory;
 

@@ -37,15 +37,12 @@ int main() {
 
   // Waypoint map to read from
   const std::string MAP_FILENAME = "../data/highway_map.csv";
-  // The max s value before wrapping around the track back to 0
-  // const double max_s = 6945.554;
-  const double kLaneWidthMeters = 4;
-  const double kUpdatePeriodSeconds = 0.02;
 
   Map map;
   ReadMap(MAP_FILENAME, map);
-  
-  std::cout << "Loaded map " << MAP_FILENAME << ", total " << map.GetSize() << " points" << std::endl;
+
+  std::cout << "Loaded map " << MAP_FILENAME << ", total " << map.get_size()
+            << " points" << std::endl;
 
   std::unique_ptr<Planner> planner;
 
@@ -139,15 +136,15 @@ int main() {
     }
   });
 
-  h.onConnection([&h, &planner, &map, kUpdatePeriodSeconds, kLaneWidthMeters](uWS::WebSocket<uWS::SERVER> ws, uWS::HttpRequest req) {
+  h.onConnection([&h, &planner, &map](uWS::WebSocket<uWS::SERVER> ws,
+                                      uWS::HttpRequest req) {
     std::cout << "Connected!!!" << std::endl;
-    planner = std::unique_ptr<Planner>(new Planner(map, kUpdatePeriodSeconds, kLaneWidthMeters));
+    planner = std::unique_ptr<Planner>(new Planner(map));
   });
 
-  h.onDisconnection([&h](uWS::WebSocket<uWS::SERVER> ws, int code,
-                         char *message, size_t length) {
-    std::cout << "Disconnected" << std::endl;
-  });
+  h.onDisconnection(
+      [&h](uWS::WebSocket<uWS::SERVER> ws, int code, char *message,
+           size_t length) { std::cout << "Disconnected" << std::endl; });
 
   int port = 4567;
   if (h.listen(port)) {

@@ -8,12 +8,13 @@ struct Point {
   double x, y;
 };
 
-struct CurvePoint {
-  double s, dx, dy;
-};
-
 struct FrenetPoint {
   double s, d;
+};
+
+// Curve point - position S in Frenet, normal vector (dx, dy)
+struct CurvePoint {
+  double s, dx, dy;
 };
 
 struct Car {
@@ -32,19 +33,28 @@ class Map {
   void Freeze();
 
   Point FromFrenet(const FrenetPoint &pt, bool smooth = true) const;
+
   std::vector<Point> FromFrenet(const std::vector<FrenetPoint> &pt,
                                 bool smooth = true) const;
+
   FrenetPoint ToFrenet(const Car &car) const;
+
   int ClosestWaypoint(const Point &pt) const;
 
-  size_t GetSize() const { return m_waypointsFn.size(); }
+  size_t get_size() const { return m_waypointsFn.size(); }
+
+  const std::vector<Point> &get_waypoints_xy() const { return m_waypointsXY; }
+
+  const std::vector<CurvePoint> &get_waypoints_fn() const {
+    return m_waypointsFn;
+  }
 
  private:
   std::vector<Point> m_waypointsXY;
   std::vector<CurvePoint> m_waypointsFn;
-
   tk::spline m_splineX[2], m_splineY[2], m_splineDx[2], m_splineDy[2];
   bool m_splinesReady = false;
+  double m_maxS;
 };
 
 void ReadMap(const std::string &filename, Map &map);

@@ -5,7 +5,6 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#include "spline_utils.h"
 #include "utils.h"
 
 double Distance(double x1, double y1, double x2, double y2) {
@@ -14,7 +13,7 @@ double Distance(double x1, double y1, double x2, double y2) {
 }
 
 int ClosestWaypoint(const Point &point, const std::vector<Point> &map) {
-  double closestLen = 100000;  // large number
+  double closestLen = std::numeric_limits<double>::max();
   int closestWaypoint = 0;
 
   for (int i = 0; i < map.size(); i++) {
@@ -143,6 +142,8 @@ void ReadMap(const std::string &filename, Map &map) {
   }
 
   // TODO Beware! Ugly hack!
+  // We need to close the curve, and to make proper interpolation,
+  // add a duplicate of the starting point, but with different S.
   CurvePoint cp = map.get_waypoints_fn()[0];
   cp.s = 6945.554;
   map.AddWaypoint(map.get_waypoints_xy()[0], cp);
@@ -176,4 +177,5 @@ void Map::Freeze() {
   }
 
   m_splinesReady = true;
+  m_maxS = m_waypointsFn.rbegin()->s;
 }
