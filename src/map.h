@@ -37,9 +37,7 @@ class Map {
   std::vector<Point> FromFrenet(const std::vector<FrenetPoint> &pt,
                                 bool smooth = true) const;
 
-  FrenetPoint ToFrenet(const Car &car) const;
-
-  int ClosestWaypoint(const Point &pt) const;
+  double ClampFrenetS(double s) const;
 
   size_t get_size() const { return m_waypointsFn.size(); }
 

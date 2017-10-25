@@ -221,6 +221,11 @@ double ClosenessCost(double x1, double x2, double sigma) {
   return Logistic(std::abs(x1 - x2) / sigma);
 }
 
+double GetAngle(const Point& p1, const Point& p2) {
+  return std::acos((p1.x * p2.x + p1.y * p2.y) /
+                   (Distance(0, 0, p2.x, p2.y) * Distance(0, 0, p1.x, p1.y)));
+}
+
 std::pair<double, double> GetMaxCartesianAccelerationAndSpeed(
     const PolyFunction& sTraj, const PolyFunction& dTraj, double targetTime,
     const Map& map) {
@@ -265,10 +270,12 @@ std::pair<double, double> GetMaxCartesianAccelerationAndSpeed(
       //      double turnRad = distance / sqrt(2 * (1 - cosPhi));
       //      double normalAcc = v * v / turnRad;
 
+      // TODO: use GetAngle()?
       double cosPhi = (v1.x * v2.x + v1.y * v2.y) /
                       (Distance(0, 0, v2.x, v2.y) * Distance(0, 0, v1.x, v1.y));
+      double sinPhi = sqrt(1 - cosPhi * cosPhi);
       Point v3{points[i].x - points[i - 2].x, points[i].y - points[i - 2].y};
-      double curve = 2 * sqrt(1 - cosPhi * cosPhi) / Distance(0, 0, v3.x, v3.y);
+      double curve = 2 * sinPhi / Distance(0, 0, v3.x, v3.y);
 
       maxAccS = std::max(maxAccS, sTraj.Eval3((i - 1) * intervalLength));
 
@@ -887,16 +894,16 @@ std::vector<Point> Planner::Update(const CarEx& car,
   }
 
   // Index of the next position to move to.
-  ssize_t nextPosIdx = m_plannedPath.size() - unprocessedPath.size();
+  const ssize_t nextPosIdx = m_plannedPath.size() - unprocessedPath.size();
 
-  double currentTrajectoryTime =
+  const double currentTrajectoryTime =
       (nextPosIdx > 0) ? (nextPosIdx - 1) * m_updatePeriod : 0;
 
-  bool isTimeToReplan =
+  const bool isTimeToReplan =
       (m_updateNumber == 0) || (currentTrajectoryTime >= kReplanPeriodSeconds);
 
   // We can continue only if we had any points processed.
-  bool continueTrajectory = (nextPosIdx > 0) && !m_plannedPath.empty();
+  const bool continueTrajectory = (nextPosIdx > 0) && !m_plannedPath.empty();
 
   // std::cout << "nextIdx=" << nextPosIdx << ", s=" << car.fp.s
   //           << ", d=" << car.fp.d << ", speed=" << car.car.speed
@@ -935,7 +942,7 @@ std::vector<Point> Planner::Update(const CarEx& car,
 
   if (continueTrajectory) {
     // When continueTrajectory is set, nextPosIdx > 0
-    ssize_t startPosIdx = nextPosIdx - 1 + kPointsToKeep;
+    const ssize_t startPosIdx = nextPosIdx - 1 + kPointsToKeep;
 
     startState = m_plannedPath[startPosIdx].fn;
 
@@ -952,15 +959,16 @@ std::vector<Point> Planner::Update(const CarEx& car,
   }
 
   using sec = std::chrono::duration<double>;
-  auto start = std::chrono::high_resolution_clock::now();
-  auto updatePrecision =
+  const auto start = std::chrono::high_resolution_clock::now();
+  const auto updatePrecision =
       std::chrono::duration_cast<sec>(start - m_prevUpdateTime).count() -
       currentTrajectoryTime;
   m_prevUpdateTime = start;
 
-  auto bestTrajectory = m_decider.ChooseBestTrajectory(startState, sensors);
+  const auto bestTrajectory =
+      m_decider.ChooseBestTrajectory(startState, sensors);
 
-  auto deciderTime = std::chrono::duration_cast<sec>(
+  const auto deciderTime = std::chrono::duration_cast<sec>(
       std::chrono::high_resolution_clock::now() - start);
 
   std::cout << "Decider time=" << deciderTime.count()
@@ -980,15 +988,19 @@ std::vector<Point> Planner::Update(const CarEx& car,
   }
 
   for (int i = 0; i < bestTrajectory.time / m_updatePeriod; ++i) {
-    double t = i * m_updatePeriod;
+    const double t = i * m_updatePeriod;
     State2D fn;
-    fn.s.s = bestTrajectory.s.Eval(t);
+    // Clamp s position so that next time we would start from the beginning of
+    // the lap.
+    fn.s.s = m_map.ClampFrenetS(bestTrajectory.s.Eval(t));
     fn.s.v = bestTrajectory.s.Eval2(t);
     fn.s.acc = bestTrajectory.s.Eval3(t);
+
     fn.d.s = bestTrajectory.d.Eval(t);
     fn.d.v = bestTrajectory.d.Eval2(t);
     fn.d.acc = bestTrajectory.d.Eval3(t);
-    Point pt = m_map.FromFrenet(FrenetPoint{fn.s.s, fn.d.s});
+
+    const Point pt = m_map.FromFrenet(FrenetPoint{fn.s.s, fn.d.s});
     planned.push_back(FullState{fn, pt});
   }
 
