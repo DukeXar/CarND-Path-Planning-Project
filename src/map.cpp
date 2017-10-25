@@ -93,8 +93,16 @@ Point Map::FromFrenet(const FrenetPoint &pt, bool smooth) const {
   if (!m_splinesReady) {
     throw std::runtime_error("Freeze() must be called before");
   }
-  double x = m_splineX[smooth](pt.s) + pt.d * m_splineDx[smooth](pt.s);
-  double y = m_splineY[smooth](pt.s) + pt.d * m_splineDy[smooth](pt.s);
+
+  // Wrap if it is next lap.
+  double s = pt.s;
+
+  if (pt.s > m_maxS) {
+    s = std::fmod(pt.s, m_maxS);
+  }
+
+  double x = m_splineX[smooth](s) + pt.d * m_splineDx[smooth](s);
+  double y = m_splineY[smooth](s) + pt.d * m_splineDy[smooth](s);
   return {x, y};
 }
 
