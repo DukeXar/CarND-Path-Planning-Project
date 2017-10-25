@@ -15,13 +15,122 @@ using std::placeholders::_1;
 using std::placeholders::_2;
 using std::placeholders::_3;
 
+namespace {
+
 const double kRefreshPeriodSeconds = 0.02;
+
+const double kReplanPeriodSeconds = 0.5;
+const double kAlgorithmLatencySeconds = 0.7;
+// E.g. 1 second latency of the algorithm, 50 points
+const int kPointsToKeep = kAlgorithmLatencySeconds / kRefreshPeriodSeconds;
+// This is maximum time we think the planner can stuck - we should have
+// trajectory for that time to keep moving.
+const double kMaxUpdateLatencySeconds = 2;
+const double kMinTrajectoryTimeSeconds =
+    std::max(kReplanPeriodSeconds, kMaxUpdateLatencySeconds);
+
+// README: Also the car should not experience total acceleration over 10 m/s^2
+// and jerk that is greater than 50 m/s^3.
+const double kMaxAccelerationMs2 = 10;
+const double kMaxSpeedMs = MiphToMs(50);
+const double kTargetKeepSpeed = MiphToMs(48);
+// 50 works pretty well with combination of number of samples
+const double kOtherVehicleMonitorDistance = 50;
+const double kMinToLaneBorderMeters = 0.8;
+const double kLaneWidthMeters = 4;
+const double kMaxLaneChangeTimeSeconds = 3;
+const double kMinCarDistanceMeters = 10;
+// The trajectory time depends on speed and distance. We monitor 50 meters in
+// front (kOtherVehicleMonitorDistance), so that lets say with minimal speed of
+// 10 m/s, it should be 5 seconds. It should be possible to automate this.
+const double kMaxTrajectoryTimeToKeepDistanceSeconds = 7;
 
 int DPosToCurrentLane(double d, double laneWidth) { return d / laneWidth; }
 
 double CurrentLaneToDPos(int laneIdx, double laneWidth) {
   return laneIdx * laneWidth + laneWidth / 2;
 }
+
+void DisplayCarsByLane(const WorldSnapshot& snapshot) {
+  std::vector<int> indices;
+  for (const auto& laneAndCarIds : snapshot.GetAllCarsByLane()) {
+    indices.push_back(laneAndCarIds.first);
+  }
+  std::sort(begin(indices), end(indices));
+
+  std::cout << "Cars by lane: \n";
+
+  for (int laneIdx : indices) {
+    const auto& laneAndCarIds = *(snapshot.GetAllCarsByLane().find(laneIdx));
+    int col = 1;
+    std::cout << "Lane " << laneAndCarIds.first;
+    std::cout << "\t id  speed  pos   |\n";
+    for (const auto& carId : laneAndCarIds.second) {
+      const auto& car = snapshot.GetCarById(carId);
+      std::cout << "\t" << std::setw(3) << car.id << ' ';
+      std::cout << std::setw(6) << std::setprecision(2) << std::fixed
+                << car.speed << ' ';
+      std::cout << std::setw(7) << std::setprecision(2) << std::fixed
+                << car.fnPos.s << '|';
+      if (col % 4 == 0) {
+        std::cout << "\n";
+      }
+      ++col;
+    }
+    std::cout << "\n";
+  }
+  std::cout << "\n";
+}
+
+typedef std::unordered_map<int, std::pair<bool, OtherCar>> LaneToOccupancy;
+
+void DisplayLaneOccupancy(const LaneToOccupancy& speeds) {
+  std::vector<int> indices;
+  for (const auto& pp : speeds) {
+    indices.push_back(pp.first);
+  }
+  std::sort(begin(indices), end(indices));
+
+  std::cout << "Lanes status:\n";
+  for (int idx : indices) {
+    std::cout << "\t" << std::setw(6) << idx << "|";
+  }
+  std::cout << "\n";
+  for (int idx : indices) {
+    const auto& pp = *speeds.find(idx);
+    std::cout << "\t";
+    if (pp.second.first) {
+      std::cout << "   XXX|";
+    } else {
+      std::cout << "   ...|";
+    }
+  }
+  std::cout << "\n";
+  for (int idx : indices) {
+    const auto& pp = *speeds.find(idx);
+    std::cout << "\t";
+    std::cout << std::setw(6) << std::setprecision(2) << std::fixed
+              << pp.second.second.speed << "|";
+  }
+  std::cout << std::endl;
+}
+
+double GetMinDistanceToKeep(double speed) {
+  // s = 0.5/a * v^2
+  // lets do 2x
+  double distanceToFullStop = speed * speed * 0.5 / kMaxAccelerationMs2;
+  return 2 * distanceToFullStop;
+}
+
+double GetMaxTimeToStop(double speed) {
+  // v = v0 - a * t = 0
+  // t = v0 / a
+  return speed / kMaxAccelerationMs2;
+}
+
+}  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
 
 class FixedTarget : public Target {
  public:
@@ -33,6 +142,8 @@ class FixedTarget : public Target {
 };
 
 State2D FixedTarget::At(double time) const { return m_state; }
+
+////////////////////////////////////////////////////////////////////////////////
 
 class ConstantSpeedTarget : public Target {
  public:
@@ -61,6 +172,8 @@ State2D ConstantSpeedTarget::At(double time) const {
   double s = m_speed * (time + m_latency) + m_startS - m_distance;
   return State2D{State{s, m_speed, 0}, m_stateD};
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 class ConstantAccelerationTargetSpeedTarget : public Target {
  public:
@@ -110,6 +223,8 @@ State2D ConstantAccelerationTargetSpeedTarget::At(double time) const {
 
   return State2D{State{s - m_distance, v, 0}, m_startD};
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 WorldSnapshot::WorldSnapshot(const std::vector<OtherCar>& sensors,
                              double laneWidth)
@@ -221,9 +336,13 @@ double ClosenessCost(double x1, double x2, double sigma) {
   return Logistic(std::abs(x1 - x2) / sigma);
 }
 
+double GetCosAngle(const Point& p1, const Point& p2) {
+  return (p1.x * p2.x + p1.y * p2.y) /
+         (Distance(0, 0, p2.x, p2.y) * Distance(0, 0, p1.x, p1.y));
+}
+
 double GetAngle(const Point& p1, const Point& p2) {
-  return std::acos((p1.x * p2.x + p1.y * p2.y) /
-                   (Distance(0, 0, p2.x, p2.y) * Distance(0, 0, p1.x, p1.y)));
+  return std::acos(GetCosAngle(p1, p2));
 }
 
 std::pair<double, double> GetMaxCartesianAccelerationAndSpeed(
@@ -256,26 +375,26 @@ std::pair<double, double> GetMaxCartesianAccelerationAndSpeed(
   bool hasPrevAvgSpeed = false;
 
   for (int i = 1; i < totalIntervals; ++i) {
-    double distance =
+    const double distance =
         Distance(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
-    double v = distance / intervalLength;
+    const double v = distance / intervalLength;
 
     if (i > 1) {
-      Point v1{points[i].x - points[i - 1].x, points[i].y - points[i - 1].y};
-      Point v2{points[i - 1].x - points[i - 2].x,
-               points[i - 1].y - points[i - 2].y};
+      const Point v1{points[i].x - points[i - 1].x,
+                     points[i].y - points[i - 1].y};
+      const Point v2{points[i - 1].x - points[i - 2].x,
+                     points[i - 1].y - points[i - 2].y};
 
       // This should be same as below.
       //      double cosPhi = (v1.x * v2.x + v1.y * v2.y) / (prevS * distance);
       //      double turnRad = distance / sqrt(2 * (1 - cosPhi));
       //      double normalAcc = v * v / turnRad;
 
-      // TODO: use GetAngle()?
-      double cosPhi = (v1.x * v2.x + v1.y * v2.y) /
-                      (Distance(0, 0, v2.x, v2.y) * Distance(0, 0, v1.x, v1.y));
-      double sinPhi = sqrt(1 - cosPhi * cosPhi);
-      Point v3{points[i].x - points[i - 2].x, points[i].y - points[i - 2].y};
-      double curve = 2 * sinPhi / Distance(0, 0, v3.x, v3.y);
+      const double cosPhi = GetCosAngle(v1, v2);
+      const double sinPhi = sqrt(1 - cosPhi * cosPhi);
+      const Point v3{points[i].x - points[i - 2].x,
+                     points[i].y - points[i - 2].y};
+      const double curve = 2 * sinPhi / Distance(0, 0, v3.x, v3.y);
 
       maxAccS = std::max(maxAccS, sTraj.Eval3((i - 1) * intervalLength));
 
@@ -291,14 +410,15 @@ std::pair<double, double> GetMaxCartesianAccelerationAndSpeed(
         avgSpeedSum -= speeds[i - avgSpeedCount];
         avgCurveSum -= curves[i - avgSpeedCount];
 
-        double avgSpeed = avgSpeedSum / avgSpeedCount;
+        const double avgSpeed = avgSpeedSum / avgSpeedCount;
 
         if (hasPrevAvgSpeed) {
-          double avgCurve = avgCurveSum / avgSpeedCount;
-          double normalAcc = avgSpeed * avgSpeed * avgCurve;
-          double tangAcc =
+          const double avgCurve = avgCurveSum / avgSpeedCount;
+          const double normalAcc = avgSpeed * avgSpeed * avgCurve;
+          const double tangAcc =
               (avgSpeed - prevAvgSpeed) / (avgSpeedCount * intervalLength);
-          double fullAcc = sqrt(normalAcc * normalAcc + tangAcc * tangAcc);
+          const double fullAcc =
+              sqrt(normalAcc * normalAcc + tangAcc * tangAcc);
           maxAccSoFar = std::max(maxAccSoFar, fullAcc);
         }
 
@@ -329,7 +449,7 @@ double PowerLimit(double x, double limit, double threshold) {
     return 0.0;
   }
 
-  double res = (x - threshold) / (limit - threshold);
+  const double res = (x - threshold) / (limit - threshold);
   return std::pow(res, 7);
 }
 
@@ -337,13 +457,14 @@ double CartesianAccelerationLimitCost(const PolyFunction& sTraj,
                                       const PolyFunction& dTraj,
                                       double targetTime, double accLimit,
                                       double speedLimit, const Map& map) {
-  auto result =
+  const auto result =
       GetMaxCartesianAccelerationAndSpeed(sTraj, dTraj, targetTime, map);
-  double maxAccSoFar = result.first;
-  double maxSpeedSoFar = result.second;
+  const double maxAccSoFar = result.first;
+  const double maxSpeedSoFar = result.second;
 
-  double accCost = PowerLimit(maxAccSoFar, accLimit, 0.9 * accLimit);
-  double speedCost = PowerLimit(maxSpeedSoFar, speedLimit, 0.9 * speedLimit);
+  const double accCost = PowerLimit(maxAccSoFar, accLimit, 0.9 * accLimit);
+  const double speedCost =
+      PowerLimit(maxSpeedSoFar, speedLimit, 0.9 * speedLimit);
 
   return (10 * accCost + speedCost) / 11;
 }
@@ -360,10 +481,14 @@ double CollidesWithAnyVehicle(const PolyFunction& sTraj,
   double minDistance = std::numeric_limits<double>::max();
 
   for (int i = 0; i < totalIntervals; ++i) {
-    double currentTime = i * intervalLength;
-    FrenetPoint carPosFn = {sTraj.Eval(currentTime), dTraj.Eval(currentTime)};
-    const auto carPos = map.FromFrenet(carPosFn);
-    WorldSnapshot snapshot = world.Simulate(currentTime + worldTimeOffset);
+    const double currentTime = i * intervalLength;
+    const FrenetPoint ourPosFn = {sTraj.Eval(currentTime),
+                                  dTraj.Eval(currentTime)};
+    const double ourSpeed = sTraj.Eval2(currentTime);
+    const auto ourPos = map.FromFrenet(ourPosFn);
+
+    const WorldSnapshot snapshot =
+        world.Simulate(currentTime + worldTimeOffset);
 
     std::vector<int> laneIndices = lanesToCheck;
     if (lanesToCheck.empty()) {
@@ -373,16 +498,17 @@ double CollidesWithAnyVehicle(const PolyFunction& sTraj,
     }
 
     for (int laneIdx : laneIndices) {
+      double distanceToKeep = GetMinDistanceToKeep(ourSpeed);
       const auto& carIds = snapshot.GetAllCarsByLane().find(laneIdx)->second;
       for (const auto& carId : carIds) {
-        const auto& car = snapshot.GetCarById(carId);
-        const auto otherCarPos = map.FromFrenet(car.fnPos);
+        const auto& otherCar = snapshot.GetCarById(carId);
+        const auto otherCarPos = map.FromFrenet(otherCar.fnPos);
         double distance =
-            Distance(carPos.x, carPos.y, otherCarPos.x, otherCarPos.y);
+            Distance(ourPos.x, ourPos.y, otherCarPos.x, otherCarPos.y);
 
         if (verbose) {
-          std::cout << "Checking " << car.id << ", s=" << car.fnPos.s
-                    << ", d=" << car.fnPos.d << ", distance=" << distance
+          std::cout << "Checking " << otherCar.id << ", s=" << otherCar.fnPos.s
+                    << ", d=" << otherCar.fnPos.d << ", distance=" << distance
                     << std::endl;
         }
 
@@ -444,112 +570,7 @@ double OutsideOfTheRoadPenalty(const PolyFunction& sTraj,
   return failed ? 1.0 : 0.0;
 }
 
-namespace {
-
-const double kReplanPeriodSeconds = 0.5;
-const double kAlgorithmLatencySeconds = 0.7;
-// E.g. 1 second latency of the algorithm, 50 points
-const int kPointsToKeep = kAlgorithmLatencySeconds / kRefreshPeriodSeconds;
-// This is maximum time we think the planner can stuck - we should have
-// trajectory for that time to keep moving.
-const double kMaxUpdateLatencySeconds = 2;
-const double kMinTrajectoryTimeSeconds =
-    std::max(kReplanPeriodSeconds, kMaxUpdateLatencySeconds);
-
-// README: Also the car should not experience total acceleration over 10 m/s^2
-// and jerk that is greater than 50 m/s^3.
-const double kMaxAccelerationMs2 = 10;
-const double kMaxSpeedMs = MiphToMs(50);
-const double kTargetKeepSpeed = MiphToMs(48);
-// 50 works pretty well with combination of number of samples
-const double kOtherVehicleMonitorDistance = 50;
-const double kMinToLaneBorderMeters = 0.8;
-const double kLaneWidthMeters = 4;
-const double kMaxLaneChangeTimeSeconds = 3;
-const double kMinCarDistanceMeters = 10;
-// The trajectory time depends on speed and distance. We monitor 50 meters in
-// front (kOtherVehicleMonitorDistance), so that lets say with minimal speed of
-// 10 m/s, it should be 5 seconds. It should be possible to automate this.
-const double kMaxTrajectoryTimeToKeepDistanceSeconds = 7;
-
-void DisplayCarsByLane(const WorldSnapshot& snapshot) {
-  std::vector<int> indices;
-  for (const auto& laneAndCarIds : snapshot.GetAllCarsByLane()) {
-    indices.push_back(laneAndCarIds.first);
-  }
-  std::sort(begin(indices), end(indices));
-
-  std::cout << "Cars by lane: \n";
-
-  for (int laneIdx : indices) {
-    const auto& laneAndCarIds = *(snapshot.GetAllCarsByLane().find(laneIdx));
-    int col = 1;
-    std::cout << "Lane " << laneAndCarIds.first;
-    std::cout << "\t id  speed  pos   |\n";
-    for (const auto& carId : laneAndCarIds.second) {
-      const auto& car = snapshot.GetCarById(carId);
-      std::cout << "\t" << std::setw(3) << car.id << ' ';
-      std::cout << std::setw(6) << std::setprecision(2) << std::fixed
-                << car.speed << ' ';
-      std::cout << std::setw(7) << std::setprecision(2) << std::fixed
-                << car.fnPos.s << '|';
-      if (col % 4 == 0) {
-        std::cout << "\n";
-      }
-      ++col;
-    }
-    std::cout << "\n";
-  }
-  std::cout << "\n";
-}
-
-typedef std::unordered_map<int, std::pair<bool, OtherCar>> LaneToOccupancy;
-
-void DisplayLaneOccupancy(const LaneToOccupancy& speeds) {
-  std::vector<int> indices;
-  for (const auto& pp : speeds) {
-    indices.push_back(pp.first);
-  }
-  std::sort(begin(indices), end(indices));
-
-  std::cout << "Lanes status:\n";
-  for (int idx : indices) {
-    std::cout << "\t" << std::setw(6) << idx << "|";
-  }
-  std::cout << "\n";
-  for (int idx : indices) {
-    const auto& pp = *speeds.find(idx);
-    std::cout << "\t";
-    if (pp.second.first) {
-      std::cout << "   XXX|";
-    } else {
-      std::cout << "   ...|";
-    }
-  }
-  std::cout << "\n";
-  for (int idx : indices) {
-    const auto& pp = *speeds.find(idx);
-    std::cout << "\t";
-    std::cout << std::setw(6) << std::setprecision(2) << std::fixed
-              << pp.second.second.speed << "|";
-  }
-  std::cout << std::endl;
-}
-
-double GetMinDistanceToKeep(double speed) {
-  // s = 0.5/a * v^2
-  // lets do 2x
-  double distanceToFullStop = speed * speed * 0.5 / kMaxAccelerationMs2;
-  return 2 * distanceToFullStop;
-}
-
-double GetMaxTimeToStop(double speed) {
-  // v = v0 - a * t = 0
-  // t = v0 / a
-  return speed / kMaxAccelerationMs2;
-}
-
-}  // namespace
+////////////////////////////////////////////////////////////////////////////////
 
 Decider::Decider(double laneWidth, double minTrajectoryTimeSeconds,
                  double latencySeconds, const Map& map)
@@ -873,7 +894,7 @@ BestTrajectories Decider::ChooseBestTrajectory(
   return SwitchToKeepingSpeed(startState);
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
 Planner::Planner(const Map& map)
     : m_updatePeriod(kRefreshPeriodSeconds),
