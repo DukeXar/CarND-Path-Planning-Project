@@ -460,6 +460,87 @@ const double kMinToLaneBorderMeters = 0.8;
 const double kLaneWidthMeters = 4;
 const double kMaxLaneChangeTimeSeconds = 3;
 const double kMinCarDistanceMeters = 10;
+// The trajectory time depends on speed and distance. We monitor 50 meters in
+// front (kOtherVehicleMonitorDistance), so that lets say with minimal speed of
+// 10 m/s, it should be 5 seconds. It should be possible to automate this.
+const double kMaxTrajectoryTimeToKeepDistanceSeconds = 7;
+
+void DisplayCarsByLane(const WorldSnapshot& snapshot) {
+  std::vector<int> indices;
+  for (const auto& laneAndCarIds : snapshot.GetAllCarsByLane()) {
+    indices.push_back(laneAndCarIds.first);
+  }
+  std::sort(begin(indices), end(indices));
+
+  std::cout << "Cars by lane: \n";
+
+  for (int laneIdx : indices) {
+    const auto& laneAndCarIds = *(snapshot.GetAllCarsByLane().find(laneIdx));
+    int col = 1;
+    std::cout << "Lane " << laneAndCarIds.first;
+    std::cout << "\t id  speed  pos   |\n";
+    for (const auto& carId : laneAndCarIds.second) {
+      const auto& car = snapshot.GetCarById(carId);
+      std::cout << "\t" << std::setw(3) << car.id << ' ';
+      std::cout << std::setw(6) << std::setprecision(2) << std::fixed
+                << car.speed << ' ';
+      std::cout << std::setw(7) << std::setprecision(2) << std::fixed
+                << car.fnPos.s << '|';
+      if (col % 4 == 0) {
+        std::cout << "\n";
+      }
+      ++col;
+    }
+    std::cout << "\n";
+  }
+  std::cout << "\n";
+}
+
+typedef std::unordered_map<int, std::pair<bool, OtherCar>> LaneToOccupancy;
+
+void DisplayLaneOccupancy(const LaneToOccupancy& speeds) {
+  std::vector<int> indices;
+  for (const auto& pp : speeds) {
+    indices.push_back(pp.first);
+  }
+  std::sort(begin(indices), end(indices));
+
+  std::cout << "Lanes status:\n";
+  for (int idx : indices) {
+    std::cout << "\t" << std::setw(6) << idx << "|";
+  }
+  std::cout << "\n";
+  for (int idx : indices) {
+    const auto& pp = *speeds.find(idx);
+    std::cout << "\t";
+    if (pp.second.first) {
+      std::cout << "   XXX|";
+    } else {
+      std::cout << "   ...|";
+    }
+  }
+  std::cout << "\n";
+  for (int idx : indices) {
+    const auto& pp = *speeds.find(idx);
+    std::cout << "\t";
+    std::cout << std::setw(6) << std::setprecision(2) << std::fixed
+              << pp.second.second.speed << "|";
+  }
+  std::cout << std::endl;
+}
+
+double GetMinDistanceToKeep(double speed) {
+  // s = 0.5/a * v^2
+  // lets do 2x
+  double distanceToFullStop = speed * speed * 0.5 / kMaxAccelerationMs2;
+  return 2 * distanceToFullStop;
+}
+
+double GetMaxTimeToStop(double speed) {
+  // v = v0 - a * t = 0
+  // t = v0 / a
+  return speed / kMaxAccelerationMs2;
+}
 
 }  // namespace
 
@@ -597,9 +678,9 @@ BestTrajectories Decider::BuildKeepDistanceTrajectory(
   cfg.sigmaD.s = 0.5;
   cfg.sigmaD.v = kSigmaDV;
   cfg.sigmaD.acc = kSigmaDAcc;
-  cfg.samplesCount = 40;
+  cfg.samplesCount = 10;
   cfg.minTime = m_minTrajectoryTimeSeconds;
-  cfg.maxTime = 25;
+  cfg.maxTime = kMaxTrajectoryTimeToKeepDistanceSeconds;
   cfg.timeStep = 0.2;
 
   return FindBestTrajectories(startState, target, cfg, costFunction);
@@ -650,74 +731,6 @@ BestTrajectories Decider::BuildKeepSpeedTrajectory(const State2D& startState,
   return result;
 }
 
-namespace {
-
-void DisplayCarsByLane(const WorldSnapshot& snapshot) {
-  std::vector<int> indices;
-  for (const auto& laneAndCarIds : snapshot.GetAllCarsByLane()) {
-    indices.push_back(laneAndCarIds.first);
-  }
-  std::sort(begin(indices), end(indices));
-
-  std::cout << "Cars by lane: \n";
-
-  for (int laneIdx : indices) {
-    const auto& laneAndCarIds = *(snapshot.GetAllCarsByLane().find(laneIdx));
-    int col = 1;
-    std::cout << "Lane " << laneAndCarIds.first;
-    std::cout << "\t id  speed  pos   |\n";
-    for (const auto& carId : laneAndCarIds.second) {
-      const auto& car = snapshot.GetCarById(carId);
-      std::cout << "\t" << std::setw(3) << car.id << ' ';
-      std::cout << std::setw(6) << std::setprecision(2) << std::fixed
-                << car.speed << ' ';
-      std::cout << std::setw(7) << std::setprecision(2) << std::fixed
-                << car.fnPos.s << '|';
-      if (col % 4 == 0) {
-        std::cout << "\n";
-      }
-      ++col;
-    }
-    std::cout << "\n";
-  }
-  std::cout << "\n";
-}
-
-typedef std::unordered_map<int, std::pair<bool, OtherCar>> LaneToOccupancy;
-
-void DisplayLaneOccupancy(const LaneToOccupancy& speeds) {
-  std::vector<int> indices;
-  for (const auto& pp : speeds) {
-    indices.push_back(pp.first);
-  }
-  std::sort(begin(indices), end(indices));
-
-  std::cout << "Lanes status:\n";
-  for (int idx : indices) {
-    std::cout << "\t" << std::setw(6) << idx << "|";
-  }
-  std::cout << "\n";
-  for (int idx : indices) {
-    const auto& pp = *speeds.find(idx);
-    std::cout << "\t";
-    if (pp.second.first) {
-      std::cout << "   XXX|";
-    } else {
-      std::cout << "   ...|";
-    }
-  }
-  std::cout << "\n";
-  for (int idx : indices) {
-    const auto& pp = *speeds.find(idx);
-    std::cout << "\t";
-    std::cout << std::setw(6) << std::setprecision(2) << std::fixed
-              << pp.second.second.speed << "|";
-  }
-  std::cout << std::endl;
-}
-
-}  // namespace
-
 BestTrajectories Decider::SwitchToKeepingSpeed(const State2D& startState) {
   m_mode = Mode::kKeepSpeed;
   m_followingCarId = -1;
@@ -733,12 +746,9 @@ BestTrajectories Decider::SwitchToFollowingVehicle(
 
   OtherCar otherCar = snapshot.GetCarById(carId);
 
-  // TODO: this should be based on the target vehicle speed, maximum allowed
-  // acceleration to go to full stop
-  // s = 0.5/a * v^2
-  // lets do 2x
-  double distanceToKeep =
-      2 * (otherCar.speed * otherCar.speed) * 0.5 / kMaxAccelerationMs2;
+  // Here we take other vehicle's speed as target, as we assume that we will
+  // align our speed to target vehicle's.
+  double distanceToKeep = GetMinDistanceToKeep(otherCar.speed);
 
   std::cout << "Following vehicle id=" << carId
             << ", distance=" << (otherCar.fnPos.s - startState.s.s)
