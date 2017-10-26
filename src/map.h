@@ -29,13 +29,15 @@ double Distance(double x1, double y1, double x2, double y2);
 // hardcoded length inside, but it should be okay for the project.
 class Map {
  public:
+  static const bool kDefaultSmooth = true;
+
   void AddWaypoint(const Point &pt, const CurvePoint &cp);
   void Freeze();
 
-  Point FromFrenet(const FrenetPoint &pt, bool smooth = true) const;
+  Point FromFrenet(const FrenetPoint &pt, bool smooth = kDefaultSmooth) const;
 
   std::vector<Point> FromFrenet(const std::vector<FrenetPoint> &pt,
-                                bool smooth = true) const;
+                                bool smooth = kDefaultSmooth) const;
 
   double ClampFrenetS(double s) const;
 
