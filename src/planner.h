@@ -68,14 +68,16 @@ class Decider {
   BestTrajectories BuildKeepDistanceTrajectory(const State2D& startState,
                                                int followingCarId,
                                                double distanceToKeep,
-                                               const WorldSnapshot& snapshot);
+                                               const WorldSnapshot& snapshot,
+                                               World& world);
   BestTrajectories BuildKeepSpeedTrajectory(const State2D& startState,
                                             double targetSpeed);
 
   BestTrajectories SwitchToKeepingSpeed(const State2D& startState);
   BestTrajectories SwitchToFollowingVehicle(const State2D& startState,
                                             int carId,
-                                            const WorldSnapshot& snapshot);
+                                            const WorldSnapshot& snapshot,
+                                            World& world);
 
  private:
   double m_laneWidth;

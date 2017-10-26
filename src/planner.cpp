@@ -469,16 +469,14 @@ double CartesianAccelerationLimitCost(const PolyFunction& sTraj,
   return (10 * accCost + speedCost) / 11;
 }
 
-double CollidesWithAnyVehicle(const PolyFunction& sTraj,
-                              const PolyFunction& dTraj, double targetTime,
-                              double worldTimeOffset, World& world,
-                              const Map& map, double distanceLimit,
-                              const std::vector<int>& lanesToCheck,
-                              bool verbose = false) {
+double ExceedsSafeDistance(const PolyFunction& sTraj, const PolyFunction& dTraj,
+                           double targetTime, double worldTimeOffset,
+                           World& world, const Map& map,
+                           const std::vector<int>& lanesToCheck,
+                           double minDistanceStrict = -1,
+                           bool verbose = false) {
   const double intervalLength = kRefreshPeriodSeconds;
   const int totalIntervals = targetTime / intervalLength;
-
-  double minDistance = std::numeric_limits<double>::max();
 
   for (int i = 0; i < totalIntervals; ++i) {
     const double currentTime = i * intervalLength;
@@ -498,13 +496,30 @@ double CollidesWithAnyVehicle(const PolyFunction& sTraj,
     }
 
     for (int laneIdx : laneIndices) {
-      double distanceToKeep = GetMinDistanceToKeep(ourSpeed);
+      const double frontDistanceToKeep = GetMinDistanceToKeep(ourSpeed);
+
       const auto& carIds = snapshot.GetAllCarsByLane().find(laneIdx)->second;
       for (const auto& carId : carIds) {
         const auto& otherCar = snapshot.GetCarById(carId);
         const auto otherCarPos = map.FromFrenet(otherCar.fnPos);
-        double distance =
+
+        // Calculate distnace in cartesian, should probably be more precise on
+        // turns
+        const double distance =
             Distance(ourPos.x, ourPos.y, otherCarPos.x, otherCarPos.y);
+
+        double distanceToKeep = 0;
+        // If the caller wants specific limit, use that.
+        if (minDistanceStrict >= 0) {
+          distanceToKeep = minDistanceStrict;
+        } else {
+          // If the car is behind us, treat it with same importance as ourself
+          if (otherCar.fnPos.s < ourPosFn.s) {
+            distanceToKeep = GetMinDistanceToKeep(otherCar.speed);
+          } else {
+            distanceToKeep = frontDistanceToKeep;
+          }
+        }
 
         if (verbose) {
           std::cout << "Checking " << otherCar.id << ", s=" << otherCar.fnPos.s
@@ -512,13 +527,11 @@ double CollidesWithAnyVehicle(const PolyFunction& sTraj,
                     << std::endl;
         }
 
-        minDistance = std::min(minDistance, distance);
+        if (distance < distanceToKeep) {
+          return 1.0;
+        }
       }
     }
-  }
-
-  if (minDistance <= distanceLimit) {
-    return 1.0;
   }
 
   return 0.0;
@@ -629,18 +642,18 @@ BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D& startState,
                                    targetTime);
   };
 
-  const auto collidesWithAnyVehicle = [this, &world, targetLane](
+  const auto hasGoodDistanceToOthers = [this, &world, targetLane](
       const PolyFunction& sTraj, const PolyFunction& dTraj, double targetTime) {
-    return CollidesWithAnyVehicle(sTraj, dTraj, targetTime, m_latencySeconds,
-                                  world, m_map, kMinCarDistanceMeters,
-                                  std::vector<int>{targetLane, m_currentLane});
+    return ExceedsSafeDistance(sTraj, dTraj, targetTime, m_latencySeconds,
+                               world, m_map,
+                               std::vector<int>{targetLane, m_currentLane});
   };
 
   // TODO we need to keep same minimum distance by S as we do in other mode
 
   const WeightedFunctions weighted{
       {500, stayInLanesPenalty},
-      {500, collidesWithAnyVehicle},
+      {500, hasGoodDistanceToOthers},
       {10, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
       {20, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
       {40, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
@@ -675,7 +688,7 @@ BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D& startState,
 
 BestTrajectories Decider::BuildKeepDistanceTrajectory(
     const State2D& startState, int followingCarId, double distanceToKeep,
-    const WorldSnapshot& snapshot) {
+    const WorldSnapshot& snapshot, World& world) {
   const double currentLaneD = CurrentLaneToDPos(m_currentLane, m_laneWidth);
 
   const OtherCar otherCar = snapshot.GetCarById(followingCarId);
@@ -686,6 +699,12 @@ BestTrajectories Decider::BuildKeepDistanceTrajectory(
       distanceToKeep,
       0);  // no need for latency, as it was incorporated by snapshot
 
+  const auto collidesWithAnyVehicleInLane = [this, &world](
+      const PolyFunction& sTraj, const PolyFunction& dTraj, double targetTime) {
+    return ExceedsSafeDistance(sTraj, dTraj, targetTime, m_latencySeconds,
+                               world, m_map, std::vector<int>{m_currentLane});
+  };
+
   const auto safeOffsets = GetSafeLaneOffsets(m_currentLane);
 
   const WeightedFunctions weighted{
@@ -694,7 +713,7 @@ BestTrajectories Decider::BuildKeepDistanceTrajectory(
       {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, safeOffsets.first,
                       safeOffsets.second, _3)},
       {300, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
-  };
+      {500, std::bind(collidesWithAnyVehicleInLane, _1, _2, _3)}};
 
   const auto costFunction =
       std::bind(WeightedCostFunction, weighted, _1, _2, _3);
@@ -768,7 +787,8 @@ BestTrajectories Decider::SwitchToKeepingSpeed(const State2D& startState) {
 }
 
 BestTrajectories Decider::SwitchToFollowingVehicle(
-    const State2D& startState, int carId, const WorldSnapshot& snapshot) {
+    const State2D& startState, int carId, const WorldSnapshot& snapshot,
+    World& world) {
   m_mode = Mode::kFollowVehicle;
   m_followingCarId = carId;
 
@@ -780,10 +800,12 @@ BestTrajectories Decider::SwitchToFollowingVehicle(
 
   std::cout << "Following vehicle id=" << carId
             << ", distance=" << (otherCar.fnPos.s - startState.s.s)
-            << ", distanceToKeep=" << distanceToKeep << std::endl;
+            << ", speed=" << otherCar.speed
+            << ", distanceToKeep=" << distanceToKeep << std::endl
+            << ", our startSpeed=" << startState.s.v;
 
   return BuildKeepDistanceTrajectory(startState, m_followingCarId,
-                                     distanceToKeep, snapshot);
+                                     distanceToKeep, snapshot, world);
 }
 
 BestTrajectories Decider::ChooseBestTrajectory(
@@ -798,7 +820,7 @@ BestTrajectories Decider::ChooseBestTrajectory(
   World world(sensors, m_laneWidth);
   const auto snapshot = world.Simulate(m_latencySeconds);
 
-  // DisplayCarsByLane(snapshot);
+  DisplayCarsByLane(snapshot);
 
   if (m_mode == Mode::kChangingLane) {
     bool areWeThereYet =
@@ -834,7 +856,7 @@ BestTrajectories Decider::ChooseBestTrajectory(
     }
   }
 
-  // DisplayLaneOccupancy(speeds);
+  DisplayLaneOccupancy(speeds);
 
   auto maxSpeedLane = std::max_element(
       begin(speeds), end(speeds), [](const LaneToOccupancy::value_type& p1,
@@ -852,7 +874,7 @@ BestTrajectories Decider::ChooseBestTrajectory(
         return SwitchToKeepingSpeed(startState);
       }
       return SwitchToFollowingVehicle(startState, currentLane.second.id,
-                                      snapshot);
+                                      snapshot, world);
     }
     return SwitchToKeepingSpeed(startState);
   }
@@ -888,8 +910,9 @@ BestTrajectories Decider::ChooseBestTrajectory(
     }
 
     std::cout << "Too hard to change lane - following car instead\n";
-    return SwitchToFollowingVehicle(startState, currentLane.second.id,
-                                    snapshot);
+    // Here is bug somewhere, it seems it is tracking the wrong vehicle.
+    return SwitchToFollowingVehicle(startState, currentLane.second.id, snapshot,
+                                    world);
   }
   return SwitchToKeepingSpeed(startState);
 }
