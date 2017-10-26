@@ -119,7 +119,7 @@ double GetMinDistanceToKeep(double speed) {
   // s = 0.5/a * v^2
   // lets do 2x
   double distanceToFullStop = speed * speed * 0.5 / kMaxAccelerationMs2;
-  return 2 * distanceToFullStop;
+  return distanceToFullStop;
 }
 
 double GetMaxTimeToStop(double speed) {
