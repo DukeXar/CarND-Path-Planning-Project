@@ -17,12 +17,6 @@ struct CurvePoint {
   double s, dx, dy;
 };
 
-struct Car {
-  Point pos;
-  double yaw;
-  double speed;
-};
-
 double Distance(double x1, double y1, double x2, double y2);
 
 // This is not quite good map, as it assumes that map is circle and it has

@@ -7,6 +7,24 @@
 #include "map.h"
 #include "trajectory.h"
 
+struct Car {
+  Point pos;
+  double yaw;
+  double speed;
+};
+
+struct CarEx {
+  Car car;
+  FrenetPoint fp;
+};
+
+struct OtherCarSensor {
+  int id;
+  Point pos;
+  Point speed;
+  FrenetPoint fnPos;
+};
+
 struct OtherCar {
   int id;
   double speed;

@@ -4,18 +4,6 @@
 #include <functional>
 #include "map.h"
 
-struct CarEx {
-  Car car;
-  FrenetPoint fp;
-};
-
-struct OtherCarSensor {
-  int id;
-  Point pos;
-  Point speed;
-  FrenetPoint fnPos;
-};
-
 struct State {
   double s;
   double v;
