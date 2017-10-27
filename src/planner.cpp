@@ -20,7 +20,7 @@ namespace {
 const double kRefreshPeriodSeconds = 0.02;
 
 const double kReplanPeriodSeconds = 0.5;
-const double kAlgorithmLatencySeconds = 0.7;
+const double kAlgorithmLatencySeconds = 0.4;
 // E.g. 1 second latency of the algorithm, 50 points
 const int kPointsToKeep = kAlgorithmLatencySeconds / kRefreshPeriodSeconds;
 // This is maximum time we think the planner can stuck - we should have
