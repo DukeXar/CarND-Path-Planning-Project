@@ -497,38 +497,42 @@ double ExceedsSafeDistance(const PolyFunction& sTraj, const PolyFunction& dTraj,
 
     for (int laneIdx : laneIndices) {
       const double frontDistanceToKeep = GetMinDistanceToKeep(ourSpeed);
+      // lanesToCheck can have index that is not in the snapshot
+      const auto& carIdsIt = snapshot.GetAllCarsByLane().find(laneIdx);
+      if (carIdsIt != snapshot.GetAllCarsByLane().end()) {
+        const auto& carIds = carIdsIt->second;
+        for (const auto& carId : carIds) {
+          const auto& otherCar = snapshot.GetCarById(carId);
+          const auto otherCarPos = map.FromFrenet(otherCar.fnPos);
 
-      const auto& carIds = snapshot.GetAllCarsByLane().find(laneIdx)->second;
-      for (const auto& carId : carIds) {
-        const auto& otherCar = snapshot.GetCarById(carId);
-        const auto otherCarPos = map.FromFrenet(otherCar.fnPos);
+          // Calculate distnace in cartesian, should probably be more precise on
+          // turns
+          const double distance =
+              Distance(ourPos.x, ourPos.y, otherCarPos.x, otherCarPos.y);
 
-        // Calculate distnace in cartesian, should probably be more precise on
-        // turns
-        const double distance =
-            Distance(ourPos.x, ourPos.y, otherCarPos.x, otherCarPos.y);
-
-        double distanceToKeep = 0;
-        // If the caller wants specific limit, use that.
-        if (minDistanceStrict >= 0) {
-          distanceToKeep = minDistanceStrict;
-        } else {
-          // If the car is behind us, treat it with same importance as ourself
-          if (otherCar.fnPos.s < ourPosFn.s) {
-            distanceToKeep = GetMinDistanceToKeep(otherCar.speed);
+          double distanceToKeep = 0;
+          // If the caller wants specific limit, use that.
+          if (minDistanceStrict >= 0) {
+            distanceToKeep = minDistanceStrict;
           } else {
-            distanceToKeep = frontDistanceToKeep;
+            // If the car is behind us, treat it with same importance as ourself
+            if (otherCar.fnPos.s < ourPosFn.s) {
+              distanceToKeep = GetMinDistanceToKeep(otherCar.speed);
+            } else {
+              distanceToKeep = frontDistanceToKeep;
+            }
           }
-        }
 
-        if (verbose) {
-          std::cout << "Checking " << otherCar.id << ", s=" << otherCar.fnPos.s
-                    << ", d=" << otherCar.fnPos.d << ", distance=" << distance
-                    << std::endl;
-        }
+          if (verbose) {
+            std::cout << "Checking " << otherCar.id
+                      << ", s=" << otherCar.fnPos.s
+                      << ", d=" << otherCar.fnPos.d << ", distance=" << distance
+                      << std::endl;
+          }
 
-        if (distance < distanceToKeep) {
-          return 1.0;
+          if (distance < distanceToKeep) {
+            return 1.0;
+          }
         }
       }
     }
