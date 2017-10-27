@@ -673,12 +673,12 @@ BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D& startState,
   cfg.sigmaD.s = kSigmaDS;
   cfg.sigmaD.v = kSigmaDV;
   cfg.sigmaD.acc = kSigmaDAcc;
-  cfg.samplesCount = 10;
+  cfg.samplesCount = 20;
   cfg.minTime = m_minTrajectoryTimeSeconds;
   // This is not going to limit max lane change time, as we replan, but it works
   // quite well.
   cfg.maxTime = kMaxLaneChangeTimeSeconds;
-  cfg.timeStep = 0.2;
+  cfg.timeStep = 0.5;
 
   const auto result =
       FindBestTrajectories(startState, target, cfg, costFunction);
@@ -729,10 +729,10 @@ BestTrajectories Decider::BuildKeepDistanceTrajectory(
   cfg.sigmaD.s = 0.5;
   cfg.sigmaD.v = kSigmaDV;
   cfg.sigmaD.acc = kSigmaDAcc;
-  cfg.samplesCount = 10;
+  cfg.samplesCount = 20;
   cfg.minTime = m_minTrajectoryTimeSeconds;
   cfg.maxTime = kMaxTrajectoryTimeToKeepDistanceSeconds;
-  cfg.timeStep = 0.2;
+  cfg.timeStep = 0.5;
 
   return FindBestTrajectories(startState, target, cfg, costFunction);
 }
