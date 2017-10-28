@@ -40,25 +40,25 @@ class WorldSnapshot {
   double GetLaneWidth() const { return m_laneWidth; }
 
   const std::unordered_map<int, OtherCar>& GetAllCars() const { return m_byId; }
-  const std::unordered_map<int, std::vector<int>>& GetAllCarsByLane() const {
+  const std::unordered_multimap<int, int>& GetAllCarsByLane() const {
     return m_cars;
   }
 
  private:
   double m_laneWidth;
-  std::unordered_map<int, std::vector<int>> m_cars;
+  std::unordered_multimap<int, int> m_cars;
   std::unordered_map<int, OtherCar> m_byId;
 };
 
 class World {
  public:
   World(const std::vector<OtherCarSensor>& sensors, double laneWidth);
-  const Target& GetModelById(int id) const;
-  WorldSnapshot Simulate(double time);
+  const WorldSnapshot& Simulate(double time);
 
  private:
   double m_laneWidth;
   std::unordered_map<int, std::unique_ptr<Target>> m_models;
+  std::unordered_map<double, std::unique_ptr<WorldSnapshot>> m_snapshots;
 };
 
 class Decider {
@@ -81,8 +81,8 @@ class Decider {
                                    double targetTime) const;
 
   BestTrajectories BuildLaneSwitchTrajectory(const State2D& startState,
-                                             int targetLane, double targetSpeed,
-                                             World& world);
+                                             int sourceLane, int targetLane,
+                                             double targetSpeed, World& world);
   BestTrajectories BuildKeepDistanceTrajectory(const State2D& startState,
                                                int followingCarId,
                                                double distanceToKeep,
@@ -92,10 +92,9 @@ class Decider {
                                             double targetSpeed);
 
   BestTrajectories SwitchToKeepingSpeed(const State2D& startState);
-  BestTrajectories SwitchToFollowingVehicle(const State2D& startState,
-                                            int carId,
-                                            const WorldSnapshot& snapshot,
-                                            World& world);
+  BestTrajectories SwitchToKeepingDistance(const State2D& startState, int carId,
+                                           const WorldSnapshot& snapshot,
+                                           World& world);
 
  private:
   double m_laneWidth;
@@ -108,6 +107,7 @@ class Decider {
   int m_currentLane;
 
   int m_followingCarId;
+  int m_sourceLane;
   int m_targetLane;
   bool m_changingLeft;
   double m_targetSpeed;

@@ -96,7 +96,7 @@ State2D PerturbTarget(const State2D& target, const State& sigmaS,
 BestTrajectories FindBestTrajectories(const State2D& start,
                                       const Target& target,
                                       const GenConfig& config,
-                                      const CostFunction& costFunction) {
+                                      const WeightedFunctions& costFunctions) {
   std::vector<Goal2D> goals;
 
   double currTime = config.minTime;
@@ -127,9 +127,17 @@ BestTrajectories FindBestTrajectories(const State2D& start,
          0});
   }
 
+  std::vector<std::vector<double>> allCostsDetailed;
   std::vector<double> allCosts;
   for (const auto& traj : trajectories) {
-    allCosts.push_back(costFunction(traj.s, traj.d, traj.time));
+    double sumCost = 0;
+    allCostsDetailed.push_back({});
+    for (const auto& wf : costFunctions) {
+      double currCost = wf.first * wf.second(traj.s, traj.d, traj.time);
+      allCostsDetailed.rbegin()->push_back(currCost);
+      sumCost += currCost;
+    }
+    allCosts.push_back(sumCost);
   }
 
   //  std::cout << "allCosts=[";
@@ -141,6 +149,7 @@ BestTrajectories FindBestTrajectories(const State2D& start,
 
   auto bestTrajectory = trajectories[bestIdx];
   bestTrajectory.cost = allCosts[bestIdx];
+  bestTrajectory.detailedCost = allCostsDetailed[bestIdx];
 
   std::cout << "Best trajectory:\n";
   std::cout << "\ts=["
@@ -152,7 +161,13 @@ BestTrajectories FindBestTrajectories(const State2D& start,
             << ", v=" << goals[bestIdx].state.d.v
             << ", acc=" << goals[bestIdx].state.d.acc << "]\n";
   std::cout << "  time=" << bestTrajectory.time
-            << ", cost=" << bestTrajectory.cost << "\n";
+            << ", cost=" << bestTrajectory.cost;
+
+  std::cout << ", detailed=[";
+  for (const auto& cost : bestTrajectory.detailedCost) {
+    std::cout << " " << cost;
+  }
+  std::cout << "]\n";
 
   return bestTrajectory;
 }

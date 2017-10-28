@@ -2,6 +2,8 @@
 
 #include <array>
 #include <functional>
+#include <utility>
+#include <vector>
 #include "map.h"
 
 struct State {
@@ -51,19 +53,22 @@ const double kSigmaSS = 10.0;
 
 const double kSigmaDAcc = 1.0;
 const double kSigmaDV = 1.0;
-const double kSigmaDS = 1.0;
+const double kSigmaDS = 0.5;
 
 typedef std::function<double(const PolyFunction& sTraj,
                              const PolyFunction& dTraj, double targetTime)>
     CostFunction;
 
+typedef std::vector<std::pair<double, CostFunction>> WeightedFunctions;
+
 struct BestTrajectories {
   PolyFunction s, d;
   double time;
   double cost;
+  std::vector<double> detailedCost;
 };
 
 BestTrajectories FindBestTrajectories(const State2D& start,
                                       const Target& target,
                                       const GenConfig& config,
-                                      const CostFunction& costFunction);
+                                      const WeightedFunctions& costFunctions);
