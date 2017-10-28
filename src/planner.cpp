@@ -123,7 +123,6 @@ void DisplayLaneOccupancy(const LaneToOccupancy& speeds) {
 
 double GetMinDistanceToKeep(double speed) {
   // s = 0.5/a * v^2
-  // lets do 2x
   double distanceToFullStop = speed * speed * 0.5 / kMaxAccelerationMs2;
   return distanceToFullStop;
 }
@@ -242,14 +241,6 @@ WorldSnapshot::WorldSnapshot(const std::vector<OtherCar>& sensors,
       m_byId[car.id] = car;
     }
   }
-
-  // for (auto& laneAndCars : m_cars) {
-  //   std::sort(laneAndCars.second.begin(), laneAndCars.second.end(),
-  //             [this](int id1, int id2) {
-  //               return m_byId.find(id1)->second.fnPos.s <
-  //                      m_byId.find(id2)->second.fnPos.s;
-  //             });
-  // }
 }
 
 bool WorldSnapshot::GetClosestCar(int laneIdx, double s,
