@@ -3,7 +3,7 @@ project(Path_Planning)
 cmake_minimum_required (VERSION 3.5)
 
 if(NOT CMAKE_BUILD_TYPE) 
-    set(CMAKE_BUILD_TYPE Release)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif(NOT CMAKE_BUILD_TYPE)
 
 add_definitions(-std=c++11)
@@ -12,6 +12,7 @@ set(CXX_FLAGS "-Wall")
 set(CMAKE_CXX_FLAGS, "${CXX_FLAGS}")
 
 set(sources src/main.cpp src/map.cpp src/planner.cpp src/trajectory.cpp)
+set(road_sources src/road.cpp src/map.cpp src/planner.cpp src/trajectory.cpp)
 
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin") 
@@ -29,3 +30,6 @@ endif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 add_executable(path_planning ${sources})
 
 target_link_libraries(path_planning z ssl uv uWS)
+
+add_executable(road ${road_sources})
+target_link_libraries(road)

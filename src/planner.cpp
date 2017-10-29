@@ -21,7 +21,7 @@ namespace {
 const double kRefreshPeriodSeconds = 0.02;
 
 const double kReplanPeriodSeconds = 0.5;
-const double kAlgorithmLatencySeconds = 0.5;
+const double kAlgorithmLatencySeconds = 1.5;
 // E.g. 1 second latency of the algorithm, 50 points
 const int kPointsToKeep = kAlgorithmLatencySeconds / kRefreshPeriodSeconds;
 // This is maximum time we think the planner can stuck - we should have
@@ -33,7 +33,7 @@ const double kMinTrajectoryTimeSeconds =
 // README: Also the car should not experience total acceleration over 10 m/s^2
 // and jerk that is greater than 50 m/s^3.
 const double kMaxAccelerationMs2 = 10;
-const double kMaxSpeedMs = MiphToMs(50);
+const double kMaxSpeedMs = MiphToMs(49);
 const double kTargetKeepSpeed = MiphToMs(48);
 // 50 works pretty well with combination of number of samples
 const double kOtherVehicleMonitorDistance = 50;
@@ -688,7 +688,7 @@ BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D& startState,
   cfg.sigmaD.s = kSigmaDS;
   cfg.sigmaD.v = kSigmaDV;
   cfg.sigmaD.acc = kSigmaDAcc;
-  cfg.samplesCount = 100;
+  cfg.samplesCount = 20;
   cfg.minTime = m_minTrajectoryTimeSeconds;
   // This is not going to limit max lane change time, as we replan, but it works
   // quite well.
@@ -738,15 +738,15 @@ BestTrajectories Decider::BuildKeepDistanceTrajectory(
       {500, std::bind(hasGoodDistanceToOthers, _1, _2, _3)}};
 
   GenConfig cfg;
-  cfg.sigmaS.s = kSigmaSS;
-  cfg.sigmaS.v = kSigmaSV;
+  cfg.sigmaS.s = 20;
+  cfg.sigmaS.v = 10;
   cfg.sigmaS.acc = kSigmaSAcc;
   cfg.sigmaD.s = kSigmaDS;
   cfg.sigmaD.v = kSigmaDV;
   cfg.sigmaD.acc = kSigmaDAcc;
-  cfg.samplesCount = 100;
+  cfg.samplesCount = 10;
   cfg.minTime = m_minTrajectoryTimeSeconds;
-  cfg.maxTime = kMaxTrajectoryTimeToKeepDistanceSeconds;
+  cfg.maxTime = m_minTrajectoryTimeSeconds;
   cfg.timeStep = 0.2;
 
   return FindBestTrajectories(startState, target, cfg, weighted);
@@ -779,7 +779,7 @@ BestTrajectories Decider::BuildKeepSpeedTrajectory(const State2D& startState,
   cfg.sigmaD.s = kSigmaDS;
   cfg.sigmaD.v = kSigmaDV;
   cfg.sigmaD.acc = kSigmaDAcc;
-  cfg.samplesCount = 100;
+  cfg.samplesCount = 20;
   cfg.minTime = m_minTrajectoryTimeSeconds;
   cfg.maxTime = 5;
   cfg.timeStep = 0.5;
@@ -920,23 +920,23 @@ BestTrajectories Decider::ChooseBestTrajectory(
       targetSpeed = maxSpeedLane->second.second.speed;
     }
 
-    auto trajectory = BuildLaneSwitchTrajectory(
-        startState, m_currentLane, maxSpeedLane->first, targetSpeed, world);
+    // auto trajectory = BuildLaneSwitchTrajectory(
+    //     startState, m_currentLane, maxSpeedLane->first, targetSpeed, world);
 
-    if (trajectory.cost < 200) {
-      std::cout << "Changing lane from " << m_currentLane << " to "
-                << maxSpeedLane->first << ", targetSpeed=" << targetSpeed
-                << "\n";
+    // if (trajectory.cost < 200) {
+    //   std::cout << "Changing lane from " << m_currentLane << " to "
+    //             << maxSpeedLane->first << ", targetSpeed=" << targetSpeed
+    //             << "\n";
 
-      m_mode = Mode::kChangingLane;
-      m_changingLeft = maxSpeedLane->first < m_currentLane;
-      m_sourceLane = m_currentLane;
-      m_targetLane = maxSpeedLane->first;
-      m_targetSpeed = targetSpeed;
-      return trajectory;
-    }
+    //   m_mode = Mode::kChangingLane;
+    //   m_changingLeft = maxSpeedLane->first < m_currentLane;
+    //   m_sourceLane = m_currentLane;
+    //   m_targetLane = maxSpeedLane->first;
+    //   m_targetSpeed = targetSpeed;
+    //   return trajectory;
+    // }
 
-    std::cout << "Too hard to change lane - following car instead\n";
+    // std::cout << "Too hard to change lane - following car instead\n";
     // Here is bug somewhere, it seems it is tracking the wrong vehicle.
     return SwitchToKeepingDistance(startState, currentLane.second.id, snapshot,
                                    world);
@@ -952,8 +952,6 @@ Planner::Planner(const Map& map)
       m_map(map),
       m_decider(kLaneWidthMeters, kMinTrajectoryTimeSeconds,
                 kAlgorithmLatencySeconds, m_map),
-      m_trajectoryOffsetIdx(0),
-      m_hasTrajectory(false),
       m_updateNumber(0) {}
 
 std::vector<Point> Planner::Update(const CarEx& car,
@@ -979,7 +977,7 @@ std::vector<Point> Planner::Update(const CarEx& car,
   // std::cout << "nextIdx=" << nextPosIdx << ", s=" << car.fp.s
   //           << ", d=" << car.fp.d << ", speed=" << car.car.speed
   //           << ", x=" << car.car.pos.x << ", y=" << car.car.pos.y
-  //           << ", up=" << unprocessedPath.size()
+  //           << ", unprocessed_size=" << unprocessedPath.size()
   //           << (isTimeToReplan ? ", replanning" : ",") << std::endl;
 
   // if (continueTrajectory) {
@@ -1063,7 +1061,6 @@ std::vector<Point> Planner::Update(const CarEx& car,
     // trajectories would be smooth
     planned.insert(planned.begin(), m_plannedPath.begin() + nextPosIdx,
                    m_plannedPath.begin() + nextPosIdx + kPointsToKeep - 1);
-    m_trajectoryOffsetIdx = planned.size();
   }
 
   for (int i = 0; i < bestTrajectory.time / m_updatePeriod; ++i) {
@@ -1082,6 +1079,14 @@ std::vector<Point> Planner::Update(const CarEx& car,
     const Point pt = m_map.FromFrenet(FrenetPoint{fn.s.s, fn.d.s});
     planned.push_back(FullState{fn, pt});
   }
+
+  // int i = 0;
+  // for (const auto& item : m_plannedPath) {
+  //   std::cout << i << ";" << item.fn.s.s << ";" << item.fn.s.v << ";"
+  //             << item.fn.d.s << ";" << item.fn.d.v << "\n";
+  //   ++i;
+  // }
+  // std::cout << "\n";
 
   m_plannedPath = planned;
   m_updateNumber++;

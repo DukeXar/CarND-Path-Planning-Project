@@ -137,9 +137,6 @@ class Planner {
 
   std::vector<FullState> m_plannedPath;
 
-  size_t m_trajectoryOffsetIdx;
-  bool m_hasTrajectory;
-
   unsigned m_updateNumber;
   std::chrono::high_resolution_clock::time_point m_prevUpdateTime;
 };
