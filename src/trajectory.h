@@ -47,6 +47,11 @@ struct GenConfig {
   double timeStep;
 };
 
+struct Goal2D {
+  State2D state;
+  double time;
+};
+
 const double kSigmaSAcc = 2.0;
 const double kSigmaSV = 4.0;
 const double kSigmaSS = 10.0;
@@ -68,7 +73,14 @@ struct BestTrajectories {
   std::vector<double> detailedCost;
 };
 
+State2D PerturbTarget(const State2D& target, const State& sigmaS,
+                      const State& sigmaD);
+
 BestTrajectories FindBestTrajectories(const State2D& start,
                                       const Target& target,
                                       const GenConfig& config,
+                                      const WeightedFunctions& costFunctions);
+
+BestTrajectories FindBestTrajectories(const State2D& start,
+                                      const std::vector<Goal2D>& goals,
                                       const WeightedFunctions& costFunctions);

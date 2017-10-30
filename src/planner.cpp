@@ -27,8 +27,10 @@ const int kPointsToKeep = kAlgorithmLatencySeconds / kRefreshPeriodSeconds;
 // This is maximum time we think the planner can stuck - we should have
 // trajectory for that time to keep moving.
 const double kMaxUpdateLatencySeconds = 1;
-const double kMinTrajectoryTimeSeconds =
-    std::max(kReplanPeriodSeconds, kMaxUpdateLatencySeconds);
+// const double kMinTrajectoryTimeSeconds =
+//     std::max(kReplanPeriodSeconds, kMaxUpdateLatencySeconds);
+
+const double kMinTrajectoryTimeSeconds = 3;
 
 // README: Also the car should not experience total acceleration over 10 m/s^2
 // and jerk that is greater than 50 m/s^3.
@@ -567,6 +569,20 @@ double ClosenessToTargetSState(const PolyFunction& sTraj,
   return cost;
 }
 
+double ClosenessToTargetSState2(const PolyFunction& sTraj,
+                                const PolyFunction& dTraj, const Target& target,
+                                double targetTime) {
+  auto targetState = target.At(targetTime);
+
+  double cost = 0;
+
+  cost += ClosenessCost(targetState.s.s, sTraj.Eval(targetTime), 100);
+  cost += ClosenessCost(targetState.s.v, sTraj.Eval2(targetTime), 20);
+  cost += ClosenessCost(targetState.s.acc, sTraj.Eval3(targetTime), kSigmaSAcc);
+
+  return cost;
+}
+
 double ClosenessToTargetDState(const PolyFunction& sTraj,
                                const PolyFunction& dTraj, const Target& target,
                                double targetTime) {
@@ -692,7 +708,7 @@ BestTrajectories Decider::BuildLaneSwitchTrajectory(const State2D& startState,
   cfg.minTime = m_minTrajectoryTimeSeconds;
   // This is not going to limit max lane change time, as we replan, but it works
   // quite well.
-  cfg.maxTime = kMaxLaneChangeTimeSeconds;
+  cfg.maxTime = m_minTrajectoryTimeSeconds;
   cfg.timeStep = 0.2;
 
   const auto result = FindBestTrajectories(startState, target, cfg, weighted);
@@ -717,6 +733,14 @@ BestTrajectories Decider::BuildKeepDistanceTrajectory(
       distanceToKeep,
       0);  // no need for latency, as it was incorporated by snapshot
 
+  // const double targetSpeed = kTargetKeepSpeed;
+  // ConstantAccelerationTargetSpeedTarget target(targetSpeed,
+  // kMaxAccelerationMs2,
+  //                                              startState.s.s,
+  //                                              startState.s.v,
+  //                                              State{currentLaneD, 0, 0}, 0,
+  //                                              0);
+
   const auto hasGoodDistanceToOthers = [this, &world](
       const PolyFunction& sTraj, const PolyFunction& dTraj, double targetTime) {
 
@@ -730,26 +754,68 @@ BestTrajectories Decider::BuildKeepDistanceTrajectory(
   const auto safeOffsets = GetSafeLaneOffsets(m_currentLane);
 
   const WeightedFunctions weighted{
-      {3, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
-      {10, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
+      {1, std::bind(ClosenessToTargetSState2, _1, _2, target, _3)},
+      {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
       {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, safeOffsets.first,
                       safeOffsets.second, _3)},
       {300, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
-      {500, std::bind(hasGoodDistanceToOthers, _1, _2, _3)}};
+      {500, std::bind(hasGoodDistanceToOthers, _1, _2, _3)}
+      //
+  };
 
   GenConfig cfg;
-  cfg.sigmaS.s = 20;
-  cfg.sigmaS.v = 10;
+  cfg.sigmaS.s = 60;
+  cfg.sigmaS.v = 15;
   cfg.sigmaS.acc = kSigmaSAcc;
   cfg.sigmaD.s = kSigmaDS;
   cfg.sigmaD.v = kSigmaDV;
   cfg.sigmaD.acc = kSigmaDAcc;
-  cfg.samplesCount = 10;
+  cfg.samplesCount = 800;
   cfg.minTime = m_minTrajectoryTimeSeconds;
   cfg.maxTime = m_minTrajectoryTimeSeconds;
   cfg.timeStep = 0.2;
 
-  return FindBestTrajectories(startState, target, cfg, weighted);
+  std::vector<Goal2D> goals;
+  for (int i = 0; i < 50; ++i) {
+    Goal2D goal;
+    goal.time = m_minTrajectoryTimeSeconds;
+    goal.state.d = State{currentLaneD, 0, 0};
+
+    goal.state.s.s = startState.s.s + i * 1;
+    goal.state.s.v = otherCar.speed;
+    goal.state.s.acc = 0;
+
+    goals.push_back(goal);
+
+    for (int sample = 0; sample < 100; ++sample) {
+      goal.state.s.acc = 5.0;
+      State sigmaS{1.0, otherCar.speed / 2, 1.0};
+      State sigmaD{1.0, 1.0, 1.0};
+      State2D cand = PerturbTarget(goal.state, sigmaS, sigmaD);
+      if (cand.s.v > 0 && cand.s.s > startState.s.s) {
+        goals.push_back(Goal2D{cand, goal.time});
+      }
+    }
+  }
+  const auto result = FindBestTrajectories(startState, goals, weighted);
+
+  // double bestCost = std::numeric_limits<double>::max();
+  // BestTrajectories best =
+  //     FindBestTrajectories(startState, target, cfg, weighted);
+
+  // for (int i = 0; i < 100; ++i) {
+  //   double targetS = startState.s.s;
+  //   double targetV = startState.s.v;
+
+  //   ConstantSpeedTarget newTarget(
+  //     targetV, targetS, State{currentLaneD, 0, 0},
+  //     0,
+  //     0);
+  //    FindBestTrajectories(startState, target, cfg, weighted)
+  // }
+
+  // return FindBestTrajectories(startState, target, cfg, weighted);
+  return result;
 }
 
 BestTrajectories Decider::BuildKeepSpeedTrajectory(const State2D& startState,
@@ -760,31 +826,75 @@ BestTrajectories Decider::BuildKeepSpeedTrajectory(const State2D& startState,
                                                startState.s.s, startState.s.v,
                                                State{currentLaneD, 0, 0}, 0, 0);
 
+  // ConstantSpeedTarget target(
+  //     targetSpeed, startState.s.s, State{currentLaneD, 0, 0}, 0,
+  //     0);  // no need for latency, as it was incorporated by snapshot
+
   const auto safeOffsets = GetSafeLaneOffsets(m_currentLane);
 
+  const auto closenessToTargetSpeed = [targetSpeed](
+      const PolyFunction& sTraj, const PolyFunction& dTraj, double targetTime) {
+    double sumSpeed = 0;
+    int count = 0;
+    for (int i = 1; i < targetTime / kRefreshPeriodSeconds; ++i) {
+      sumSpeed += sTraj.Eval2(i * kRefreshPeriodSeconds);
+      ++count;
+    }
+    return ClosenessCost(sumSpeed / count, targetSpeed, targetSpeed);
+    // return ClosenessCost(sTraj.Eval2(targetTime), targetSpeed, targetSpeed);
+  };
+
   const WeightedFunctions weighted{
-      {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
-      {20, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
+      {30, closenessToTargetSpeed},
+      //{1, std::bind(ClosenessToTargetSState2, _1, _2, target, _3)},
+      {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
+      {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
       // TODO would the cost function that keeps closer to the middle of the
       // lane work better?
       {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, safeOffsets.first,
                       safeOffsets.second, _3)},
-      {50, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
+      {5, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
   };
 
-  GenConfig cfg;
-  cfg.sigmaS.s = kSigmaSS;
-  cfg.sigmaS.v = kSigmaSV;
-  cfg.sigmaS.acc = kSigmaSAcc;
-  cfg.sigmaD.s = kSigmaDS;
-  cfg.sigmaD.v = kSigmaDV;
-  cfg.sigmaD.acc = kSigmaDAcc;
-  cfg.samplesCount = 20;
-  cfg.minTime = m_minTrajectoryTimeSeconds;
-  cfg.maxTime = 5;
-  cfg.timeStep = 0.5;
+  // GenConfig cfg;
+  // cfg.sigmaS.s = 10;
+  // cfg.sigmaS.v = 2;
+  // cfg.sigmaS.acc = kSigmaSAcc;
+  // cfg.sigmaD.s = kSigmaDS;
+  // cfg.sigmaD.v = kSigmaDV;
+  // cfg.sigmaD.acc = kSigmaDAcc;
+  // cfg.samplesCount = 1000;
+  // cfg.minTime = m_minTrajectoryTimeSeconds;
+  // cfg.maxTime = m_minTrajectoryTimeSeconds;
+  // cfg.timeStep = 0.5;
 
-  const auto result = FindBestTrajectories(startState, target, cfg, weighted);
+  // const auto result = FindBestTrajectories(startState, target, cfg,
+  // weighted);
+
+  std::vector<Goal2D> goals;
+  for (int i = 0; i < 50; ++i) {
+    Goal2D goal;
+    goal.time = m_minTrajectoryTimeSeconds;
+    goal.state.d = State{currentLaneD, 0, 0};
+
+    goal.state.s.s = startState.s.s + i * 1;
+    goal.state.s.v = targetSpeed / 2;
+    goal.state.s.acc = 0;
+
+    goals.push_back(goal);
+
+    for (int sample = 0; sample < 100; ++sample) {
+      goal.state.s.acc = 5.0;
+      State sigmaS{1.0, targetSpeed / 2, 1.0};
+      State sigmaD{0, 0, 0};
+      State2D cand = PerturbTarget(goal.state, sigmaS, sigmaD);
+      if (cand.s.v > 0 && cand.s.s > startState.s.s) {
+        goals.push_back(Goal2D{cand, goal.time});
+      }
+    }
+  }
+
+  const auto result = FindBestTrajectories(startState, goals, weighted);
 
   const auto r = GetMaxCartesianAccelerationAndSpeed(result.s, result.d,
                                                      result.time, m_map);
@@ -968,17 +1078,20 @@ std::vector<Point> Planner::Update(const CarEx& car,
   const double currentTrajectoryTime =
       (nextPosIdx > 0) ? (nextPosIdx - 1) * m_updatePeriod : 0;
 
+  const double remainingTrajectoryTime =
+      unprocessedPath.size() * m_updatePeriod;
+
   const bool isTimeToReplan =
       (m_updateNumber == 0) || (currentTrajectoryTime >= kReplanPeriodSeconds);
 
   // We can continue only if we had any points processed.
   const bool continueTrajectory = (nextPosIdx > 0) && !m_plannedPath.empty();
 
-  // std::cout << "nextIdx=" << nextPosIdx << ", s=" << car.fp.s
-  //           << ", d=" << car.fp.d << ", speed=" << car.car.speed
-  //           << ", x=" << car.car.pos.x << ", y=" << car.car.pos.y
-  //           << ", unprocessed_size=" << unprocessedPath.size()
-  //           << (isTimeToReplan ? ", replanning" : ",") << std::endl;
+  std::cout << "nextIdx=" << nextPosIdx << ", s=" << car.fp.s
+            << ", d=" << car.fp.d << ", speed=" << car.car.speed
+            << ", x=" << car.car.pos.x << ", y=" << car.car.pos.y
+            << ", unprocessed_size=" << unprocessedPath.size()
+            << (isTimeToReplan ? ", replanning" : ",") << std::endl;
 
   // if (continueTrajectory) {
   //   double expectedS = m_plannedPath[nextPosIdx - 1].fn.s.s;
@@ -1001,7 +1114,15 @@ std::vector<Point> Planner::Update(const CarEx& car,
   //   }
   // }
 
-  if (!isTimeToReplan) {
+  // Check whether trajectory is still valid.
+  // If it is - keep going, until there is almost nothing left in the current
+  // trajectory.
+
+  // if (!isTimeToReplan) {
+  //   return unprocessedPath;
+  // }
+
+  if (remainingTrajectoryTime > 0.5) {
     return unprocessedPath;
   }
 
@@ -1009,10 +1130,14 @@ std::vector<Point> Planner::Update(const CarEx& car,
 
   State2D startState{State{car.fp.s, car.car.speed, 0}, State{car.fp.d, 0, 0}};
 
+  const size_t pointsToKeep =
+      std::min<size_t>(kPointsToKeep, unprocessedPath.size());
+  const ssize_t startPosIdx = nextPosIdx - 1 + pointsToKeep;
+
+  std::cout << "points to keep=" << pointsToKeep << "\n";
+
   if (continueTrajectory) {
     // When continueTrajectory is set, nextPosIdx > 0
-    const ssize_t startPosIdx = nextPosIdx - 1 + kPointsToKeep;
-
     startState = m_plannedPath[startPosIdx].fn;
 
     std::cout << std::setfill('-') << std::setw(80) << '\n'
@@ -1056,11 +1181,13 @@ std::vector<Point> Planner::Update(const CarEx& car,
 
   std::vector<FullState> planned;
   if (continueTrajectory &&
-      (nextPosIdx + kPointsToKeep - 1 < m_plannedPath.size())) {
+      (nextPosIdx + pointsToKeep - 1 < m_plannedPath.size())) {
     // append points from previous trajectory so that transition between
     // trajectories would be smooth
     planned.insert(planned.begin(), m_plannedPath.begin() + nextPosIdx,
-                   m_plannedPath.begin() + nextPosIdx + kPointsToKeep - 1);
+                   m_plannedPath.begin() + nextPosIdx + pointsToKeep - 1);
+    std::cout << "Copied [" << nextPosIdx << ";"
+              << nextPosIdx + pointsToKeep - 1 << ")\n";
   }
 
   for (int i = 0; i < bestTrajectory.time / m_updatePeriod; ++i) {
@@ -1080,13 +1207,14 @@ std::vector<Point> Planner::Update(const CarEx& car,
     planned.push_back(FullState{fn, pt});
   }
 
-  // int i = 0;
-  // for (const auto& item : m_plannedPath) {
-  //   std::cout << i << ";" << item.fn.s.s << ";" << item.fn.s.v << ";"
-  //             << item.fn.d.s << ";" << item.fn.d.v << "\n";
-  //   ++i;
-  // }
-  // std::cout << "\n";
+  int i = 0;
+  std::cout << "i;s_pos;s_v;d_pos;d_v\n";
+  for (const auto& item : m_plannedPath) {
+    std::cout << i << ";" << item.fn.s.s << ";" << item.fn.s.v << ";"
+              << item.fn.d.s << ";" << item.fn.d.v << "\n";
+    ++i;
+  }
+  std::cout << "\n";
 
   m_plannedPath = planned;
   m_updateNumber++;

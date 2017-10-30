@@ -53,15 +53,10 @@ double PolyFunction::Eval3(double x) const {
          20 * m_coeff[5] * x * x * x;
 }
 
-struct Goal2D {
-  State2D state;
-  double time;
-};
-
 State2D PerturbTarget(const State2D& target, const State& sigmaS,
                       const State& sigmaD) {
   static std::random_device rd;
-  static std::mt19937 gen(rd());
+  static std::minstd_rand0 gen(rd());
 
   State resS;
   {
@@ -77,7 +72,7 @@ State2D PerturbTarget(const State2D& target, const State& sigmaS,
     resS.acc = d(gen);
   }
 
-  State resD;
+  State resD = target.d;
   {
     std::normal_distribution<> d(target.d.s, sigmaD.s);
     resD.s = d(gen);
@@ -118,6 +113,12 @@ BestTrajectories FindBestTrajectories(const State2D& start,
     currTime += config.timeStep;
   }
 
+  return FindBestTrajectories(start, goals, costFunctions);
+}
+
+BestTrajectories FindBestTrajectories(const State2D& start,
+                                      const std::vector<Goal2D>& goals,
+                                      const WeightedFunctions& costFunctions) {
   std::vector<BestTrajectories> trajectories;
 
   for (const auto& goal : goals) {
@@ -140,9 +141,9 @@ BestTrajectories FindBestTrajectories(const State2D& start,
     allCosts.push_back(sumCost);
   }
 
-  //  std::cout << "allCosts=[";
-  //  for (auto v : allCosts) std::cout << " " << v;
-  //  std::cout << "]" << std::endl;
+  std::cout << "allCosts=[";
+  for (auto v : allCosts) std::cout << " " << v;
+  std::cout << "]" << std::endl;
 
   auto bestIdx =
       std::min_element(begin(allCosts), end(allCosts)) - begin(allCosts);
