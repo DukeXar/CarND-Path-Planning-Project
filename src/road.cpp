@@ -16,8 +16,8 @@ int main() {
   const double latency = 1.5;
   const double step = 0.02;
 
-  State2D prevPoint =
-      State2D{State{176.11, 20.86, 3.82}, State{6.00, 0.00, 0.01}};
+  State2D prevPoint = State2D{State{376.11, 0, 0}, State{6.00, 0.00, 0.01}};
+  // State2D prevPoint = State2D{State{176.11, 0, 0}, State{6.00, 0.00, 0.01}};
   Decider decider(laneWidth, minTrajectoryTime, latency, map);
 
   std::ofstream ofile("s.txt");

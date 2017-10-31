@@ -615,6 +615,22 @@ double OutsideOfTheRoadPenalty(const PolyFunction& sTraj,
   return failed ? 1.0 : 0.0;
 }
 
+double ClosenessToCenterOfTheLane(const PolyFunction& sTraj,
+                                  const PolyFunction& dTraj, double targetTime,
+                                  double currentLaneD) {
+  const double step = kRefreshPeriodSeconds;
+  const size_t totalIntervals = targetTime / step;
+
+  double maxDistance = 0;
+  for (int i = 1; i < totalIntervals; ++i) {
+    double d = dTraj.Eval(i * kRefreshPeriodSeconds);
+    double dist = std::abs(d - currentLaneD);
+    maxDistance = std::max(maxDistance, dist);
+  }
+
+  return ClosenessCost(maxDistance, 0, 1.0);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 Decider::Decider(double laneWidth, double minTrajectoryTimeSeconds,
@@ -822,13 +838,10 @@ BestTrajectories Decider::BuildKeepSpeedTrajectory(const State2D& startState,
                                                    double targetSpeed) {
   const double currentLaneD = CurrentLaneToDPos(m_currentLane, m_laneWidth);
 
-  ConstantAccelerationTargetSpeedTarget target(targetSpeed, kMaxAccelerationMs2,
-                                               startState.s.s, startState.s.v,
-                                               State{currentLaneD, 0, 0}, 0, 0);
-
-  // ConstantSpeedTarget target(
-  //     targetSpeed, startState.s.s, State{currentLaneD, 0, 0}, 0,
-  //     0);  // no need for latency, as it was incorporated by snapshot
+  // TODO the s does not matter here.
+  ConstantSpeedTarget target(
+      targetSpeed, startState.s.s, State{currentLaneD, 0, 0}, 0,
+      0);  // no need for latency, as it was incorporated by snapshot
 
   const auto safeOffsets = GetSafeLaneOffsets(m_currentLane);
 
@@ -845,56 +858,28 @@ BestTrajectories Decider::BuildKeepSpeedTrajectory(const State2D& startState,
   };
 
   const WeightedFunctions weighted{
-      {30, closenessToTargetSpeed},
-      //{1, std::bind(ClosenessToTargetSState2, _1, _2, target, _3)},
+      {1, closenessToTargetSpeed},
       {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
-      {1, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
-      // TODO would the cost function that keeps closer to the middle of the
-      // lane work better?
+      {1, std::bind(ClosenessToCenterOfTheLane, _1, _2, _3, currentLaneD)},
+      {5, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
       {500, std::bind(OutsideOfTheRoadPenalty, _1, _2, safeOffsets.first,
                       safeOffsets.second, _3)},
-      {5, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
   };
 
-  // GenConfig cfg;
-  // cfg.sigmaS.s = 10;
-  // cfg.sigmaS.v = 2;
-  // cfg.sigmaS.acc = kSigmaSAcc;
-  // cfg.sigmaD.s = kSigmaDS;
-  // cfg.sigmaD.v = kSigmaDV;
-  // cfg.sigmaD.acc = kSigmaDAcc;
-  // cfg.samplesCount = 1000;
-  // cfg.minTime = m_minTrajectoryTimeSeconds;
-  // cfg.maxTime = m_minTrajectoryTimeSeconds;
-  // cfg.timeStep = 0.5;
+  GenConfig cfg;
+  cfg.sigmaS.s = 0;
+  cfg.sigmaS.v = 2;
+  cfg.sigmaS.acc = kSigmaSAcc;
+  cfg.sigmaD.s = kSigmaDS;
+  cfg.sigmaD.v = kSigmaDV;
+  cfg.sigmaD.acc = kSigmaDAcc;
+  cfg.samplesCount = 10;
+  cfg.minTime = m_minTrajectoryTimeSeconds;
+  cfg.maxTime = 20 * m_minTrajectoryTimeSeconds;
+  cfg.timeStep = 0.5;
 
-  // const auto result = FindBestTrajectories(startState, target, cfg,
-  // weighted);
-
-  std::vector<Goal2D> goals;
-  for (int i = 0; i < 50; ++i) {
-    Goal2D goal;
-    goal.time = m_minTrajectoryTimeSeconds;
-    goal.state.d = State{currentLaneD, 0, 0};
-
-    goal.state.s.s = startState.s.s + i * 1;
-    goal.state.s.v = targetSpeed / 2;
-    goal.state.s.acc = 0;
-
-    goals.push_back(goal);
-
-    for (int sample = 0; sample < 100; ++sample) {
-      goal.state.s.acc = 5.0;
-      State sigmaS{1.0, targetSpeed / 2, 1.0};
-      State sigmaD{0, 0, 0};
-      State2D cand = PerturbTarget(goal.state, sigmaS, sigmaD);
-      if (cand.s.v > 0 && cand.s.s > startState.s.s) {
-        goals.push_back(Goal2D{cand, goal.time});
-      }
-    }
-  }
-
-  const auto result = FindBestTrajectories(startState, goals, weighted);
+  const auto result =
+      FindBestTrajectories(startState, target, cfg, weighted, true);
 
   const auto r = GetMaxCartesianAccelerationAndSpeed(result.s, result.d,
                                                      result.time, m_map);
@@ -1118,13 +1103,13 @@ std::vector<Point> Planner::Update(const CarEx& car,
   // If it is - keep going, until there is almost nothing left in the current
   // trajectory.
 
-  // if (!isTimeToReplan) {
-  //   return unprocessedPath;
-  // }
-
-  if (remainingTrajectoryTime > 0.5) {
+  if (!isTimeToReplan) {
     return unprocessedPath;
   }
+
+  // if (remainingTrajectoryTime > 0.5) {
+  //   return unprocessedPath;
+  // }
 
   // Replan trajectories
 

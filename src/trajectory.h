@@ -28,6 +28,9 @@ class PolyFunction {
 PolyFunction JerkMinimizingTrajectory(const State& start, const State& end,
                                       double time);
 
+PolyFunction JerkMinimizingTrajectory4(const State& start, const State& end,
+                                       double time);
+
 struct State2D {
   State s;
   State d;
@@ -79,8 +82,10 @@ State2D PerturbTarget(const State2D& target, const State& sigmaS,
 BestTrajectories FindBestTrajectories(const State2D& start,
                                       const Target& target,
                                       const GenConfig& config,
-                                      const WeightedFunctions& costFunctions);
+                                      const WeightedFunctions& costFunctions,
+                                      bool noTargetLongitudialPos = false);
 
 BestTrajectories FindBestTrajectories(const State2D& start,
                                       const std::vector<Goal2D>& goals,
-                                      const WeightedFunctions& costFunctions);
+                                      const WeightedFunctions& costFunctions,
+                                      bool noTargetLongitudialPos = false);

@@ -12,7 +12,11 @@ PolyFunction JerkMinimizingTrajectory(const State& start, const State& end,
   const double t4 = t2 * t2;
 
   Eigen::MatrixXd a = Eigen::MatrixXd(3, 3);
-  a << t3, t4, t2 * t3, 3 * t2, 4 * t3, 5 * t4, 6 * t, 12 * t2, 20 * t3;
+  // clang-format off
+  a <<     t3,      t4, t2 * t3,
+       3 * t2,  4 * t3,  5 * t4,
+        6 * t, 12 * t2, 20 * t3;
+  // clang-format on
 
   const double ds = end.s - (start.s + start.v * t + .5 * start.acc * t2);
   const double dv = end.v - (start.v + start.acc * t);
@@ -24,6 +28,33 @@ PolyFunction JerkMinimizingTrajectory(const State& start, const State& end,
   Eigen::MatrixXd c = a.inverse() * b;
   return PolyFunction({start.s, start.v, 0.5 * start.acc, c.data()[0],
                        c.data()[1], c.data()[2]});
+}
+
+PolyFunction JerkMinimizingTrajectory4(const State& start, const State& end,
+                                       double time) {
+  // http://www.mdpi.com/2076-3417/7/5/457/html
+
+  const double t = time;
+  const double t2 = t * t;
+  const double t3 = t * t * t;
+
+  Eigen::MatrixXd a = Eigen::MatrixXd(2, 2);
+  // clang-format off
+  a <<  3 * t2,  4 * t3,
+         6 * t, 12 * t2;
+  // clang-format on
+
+  const double dv = end.v - (start.v + start.acc * t);
+  const double dacc = end.acc - start.acc;
+
+  Eigen::MatrixXd b = Eigen::MatrixXd(2, 1);
+  b << dv, dacc;
+
+  Eigen::MatrixXd c = a.inverse() * b;
+  // Eigen::MatrixXd c = a.colPivHouseholderQr().solve(b);
+  // std::cout << "a=" << a << ", b=" << b << ", c=" << c << std::endl;
+  return PolyFunction(
+      {start.s, start.v, 0.5 * start.acc, c.data()[0], c.data()[1], 0});
 }
 
 double PolyFunction::Eval(double x) const {
@@ -58,30 +89,30 @@ State2D PerturbTarget(const State2D& target, const State& sigmaS,
   static std::random_device rd;
   static std::minstd_rand0 gen(rd());
 
-  State resS;
-  {
+  State resS = target.s;
+  if (sigmaS.s) {
     std::normal_distribution<> d(target.s.s, sigmaS.s);
     resS.s = d(gen);
   }
-  {
+  if (sigmaS.v) {
     std::normal_distribution<> d(target.s.v, sigmaS.v);
     resS.v = d(gen);
   }
-  {
+  if (sigmaS.acc) {
     std::normal_distribution<> d(target.s.acc, sigmaS.acc);
     resS.acc = d(gen);
   }
 
   State resD = target.d;
-  {
+  if (sigmaD.s) {
     std::normal_distribution<> d(target.d.s, sigmaD.s);
     resD.s = d(gen);
   }
-  {
+  if (sigmaD.v) {
     std::normal_distribution<> d(target.d.v, sigmaD.v);
     resD.v = d(gen);
   }
-  {
+  if (sigmaD.acc) {
     std::normal_distribution<> d(target.d.acc, sigmaD.acc);
     resD.acc = d(gen);
   }
@@ -91,7 +122,8 @@ State2D PerturbTarget(const State2D& target, const State& sigmaS,
 BestTrajectories FindBestTrajectories(const State2D& start,
                                       const Target& target,
                                       const GenConfig& config,
-                                      const WeightedFunctions& costFunctions) {
+                                      const WeightedFunctions& costFunctions,
+                                      bool noTargetLongitudialPos) {
   std::vector<Goal2D> goals;
 
   double currTime = config.minTime;
@@ -104,7 +136,7 @@ BestTrajectories FindBestTrajectories(const State2D& start,
       State2D perturbedTarget =
           PerturbTarget(currTarget, config.sigmaS, config.sigmaD);
       // Ensure we don't move backwards, and speed is sane.
-      if (perturbedTarget.s.s > start.s.s && perturbedTarget.s.v >= 0) {
+      if (perturbedTarget.s.s >= start.s.s && perturbedTarget.s.v >= 0) {
         goals.push_back({perturbedTarget, currTime});
         ++totalGenerated;
       }
@@ -113,19 +145,29 @@ BestTrajectories FindBestTrajectories(const State2D& start,
     currTime += config.timeStep;
   }
 
-  return FindBestTrajectories(start, goals, costFunctions);
+  return FindBestTrajectories(start, goals, costFunctions,
+                              noTargetLongitudialPos);
 }
 
 BestTrajectories FindBestTrajectories(const State2D& start,
                                       const std::vector<Goal2D>& goals,
-                                      const WeightedFunctions& costFunctions) {
+                                      const WeightedFunctions& costFunctions,
+                                      bool noTargetLongitudialPos) {
   std::vector<BestTrajectories> trajectories;
 
   for (const auto& goal : goals) {
-    trajectories.push_back(
-        {JerkMinimizingTrajectory(start.s, goal.state.s, goal.time),
-         JerkMinimizingTrajectory(start.d, goal.state.d, goal.time), goal.time,
-         0});
+    if (noTargetLongitudialPos) {
+      trajectories.push_back(
+          {JerkMinimizingTrajectory4(start.s, goal.state.s, goal.time),
+           JerkMinimizingTrajectory(start.d, goal.state.d, goal.time),
+           goal.time, 0});
+
+    } else {
+      trajectories.push_back(
+          {JerkMinimizingTrajectory(start.s, goal.state.s, goal.time),
+           JerkMinimizingTrajectory(start.d, goal.state.d, goal.time),
+           goal.time, 0});
+    }
   }
 
   std::vector<std::vector<double>> allCostsDetailed;
