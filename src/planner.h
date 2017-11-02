@@ -63,15 +63,19 @@ class World {
 
 class Decider {
  public:
+  enum class Mode { kKeepingLane, kChangingLane };
+  typedef std::unordered_map<int, std::pair<bool, OtherCar>> LaneToOccupancy;
+
+ public:
   Decider(double laneWidth, double minTrajectoryTimeSeconds,
           double latencySeconds, const Map& map);
 
   BestTrajectories ChooseBestTrajectory(
       const State2D& startState, const std::vector<OtherCarSensor>& sensors);
 
- private:
-  enum class Mode { kKeepSpeed, kFollowVehicle, kChangingLane };
+  Mode GetMode() const { return m_mode; }
 
+ private:
   double GetSafeLaneOffset() const;
 
   std::pair<double, double> GetSafeLaneOffsets(int laneIdx) const;
@@ -80,21 +84,25 @@ class Decider {
                                    const PolyFunction& dTraj,
                                    double targetTime) const;
 
-  BestTrajectories BuildLaneSwitchTrajectory(const State2D& startState,
-                                             int sourceLane, int targetLane,
-                                             double targetSpeed, World& world);
+  BestTrajectories BuildChangingLaneTrajectory(const State2D& startState,
+                                               int sourceLane, int targetLane,
+                                               double targetSpeed,
+                                               World& world);
   BestTrajectories BuildKeepDistanceTrajectory(const State2D& startState,
                                                int followingCarId,
                                                double distanceToKeep,
                                                const WorldSnapshot& snapshot,
                                                World& world);
   BestTrajectories BuildKeepSpeedTrajectory(const State2D& startState,
-                                            double targetSpeed);
+                                            double targetSpeed, World& world);
 
-  BestTrajectories SwitchToKeepingSpeed(const State2D& startState);
-  BestTrajectories SwitchToKeepingDistance(const State2D& startState, int carId,
-                                           const WorldSnapshot& snapshot,
-                                           World& world);
+  std::pair<bool, BestTrajectories> HandleKeepSpeedState(
+      const State2D& startState, const WorldSnapshot& snapshot, World& world,
+      const LaneToOccupancy& laneOccupancy);
+
+  std::pair<bool, BestTrajectories> HandleChangingLaneState(
+      const State2D& startState, const WorldSnapshot& snapshot, World& world,
+      const LaneToOccupancy& laneOccupancy);
 
  private:
   double m_laneWidth;

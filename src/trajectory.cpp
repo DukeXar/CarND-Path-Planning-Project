@@ -183,9 +183,9 @@ BestTrajectories FindBestTrajectories(const State2D& start,
     allCosts.push_back(sumCost);
   }
 
-  std::cout << "allCosts=[";
-  for (auto v : allCosts) std::cout << " " << v;
-  std::cout << "]" << std::endl;
+  // std::cout << "allCosts=[";
+  // for (auto v : allCosts) std::cout << " " << v;
+  // std::cout << "]" << std::endl;
 
   auto bestIdx =
       std::min_element(begin(allCosts), end(allCosts)) - begin(allCosts);
