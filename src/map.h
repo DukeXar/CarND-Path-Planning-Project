@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <string>
 #include <vector>
 #include "spline.h"
@@ -16,8 +17,6 @@ struct FrenetPoint {
 struct CurvePoint {
   double s, dx, dy;
 };
-
-double Distance(double x1, double y1, double x2, double y2);
 
 // This is not quite good map, as it assumes that map is circle and it has
 // hardcoded length inside, but it should be okay for the project.
@@ -52,3 +51,16 @@ class Map {
 };
 
 void ReadMap(const std::string &filename, Map &map);
+
+inline double Distance(double x1, double y1, double x2, double y2) {
+  return sqrt(static_cast<long double>(x2 - x1) * (x2 - x1) +
+              (y2 - y1) * (y2 - y1));
+}
+
+inline int DPosToCurrentLane(double d, double laneWidth) {
+  return d / laneWidth;
+}
+
+inline double CurrentLaneToDPos(int laneIdx, double laneWidth) {
+  return laneIdx * laneWidth + laneWidth / 2;
+}

@@ -8,11 +8,8 @@ std::ostream& operator<<(std::ostream& os, const Decider::Mode& mode) {
     case Decider::Mode::kChangingLane:
       os << "changing lanes";
       break;
-    case Decider::Mode::kFollowVehicle:
-      os << "following";
-      break;
-    case Decider::Mode::kKeepSpeed:
-      os << "keeping speed";
+    case Decider::Mode::kKeepingLane:
+      os << "keeping lane";
       break;
     default:
       os << "unknown";

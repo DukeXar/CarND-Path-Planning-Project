@@ -7,11 +7,6 @@
 #include <sstream>
 #include "utils.h"
 
-double Distance(double x1, double y1, double x2, double y2) {
-  return sqrt(static_cast<long double>(x2 - x1) * (x2 - x1) +
-              (y2 - y1) * (y2 - y1));
-}
-
 Point Map::FromFrenet(const FrenetPoint &pt, bool smooth) const {
   if (!m_splinesReady) {
     throw std::runtime_error("Freeze() must be called before");

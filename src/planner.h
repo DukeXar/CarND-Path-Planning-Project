@@ -6,6 +6,7 @@
 #include <vector>
 #include "map.h"
 #include "trajectory.h"
+#include "world.h"
 
 struct Car {
   Point pos;
@@ -16,49 +17,6 @@ struct Car {
 struct CarEx {
   Car car;
   FrenetPoint fp;
-};
-
-struct OtherCarSensor {
-  int id;
-  Point pos;
-  Point speed;
-  FrenetPoint fnPos;
-};
-
-struct OtherCar {
-  int id;
-  double speed;
-  FrenetPoint fnPos;
-};
-
-class WorldSnapshot {
- public:
-  WorldSnapshot(const std::vector<OtherCar>& cars, double laneWidth);
-
-  bool GetClosestCar(int laneIdx, double s, OtherCar* result) const;
-  OtherCar GetCarById(int id) const;
-  double GetLaneWidth() const { return m_laneWidth; }
-
-  const std::unordered_map<int, OtherCar>& GetAllCars() const { return m_byId; }
-  const std::unordered_multimap<int, int>& GetAllCarsByLane() const {
-    return m_cars;
-  }
-
- private:
-  double m_laneWidth;
-  std::unordered_multimap<int, int> m_cars;
-  std::unordered_map<int, OtherCar> m_byId;
-};
-
-class World {
- public:
-  World(const std::vector<OtherCarSensor>& sensors, double laneWidth);
-  const WorldSnapshot& Simulate(double time);
-
- private:
-  double m_laneWidth;
-  std::unordered_map<int, std::unique_ptr<Target>> m_models;
-  std::unordered_map<double, std::unique_ptr<WorldSnapshot>> m_snapshots;
 };
 
 class Decider {
