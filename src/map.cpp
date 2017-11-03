@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include "Dense"
 #include "utils.h"
 
 Point Map::FromFrenet(const FrenetPoint &pt, bool smooth) const {
@@ -12,8 +13,12 @@ Point Map::FromFrenet(const FrenetPoint &pt, bool smooth) const {
   }
 
   const double s = ClampFrenetS(pt.s);
-  const double x = m_splineX[smooth](s) + pt.d * m_splineDx[smooth](s);
-  const double y = m_splineY[smooth](s) + pt.d * m_splineDy[smooth](s);
+  // const double nx = m_splineY[smooth].deriv(1, s);
+  // const double ny = -m_splineX[smooth].deriv(1, s);
+  const double nx = m_splineDx[smooth](s);
+  const double ny = m_splineDy[smooth](s);
+  const double x = m_splineX[smooth](s) + pt.d * nx;
+  const double y = m_splineY[smooth](s) + pt.d * ny;
   return {x, y};
 }
 
@@ -31,6 +36,63 @@ std::vector<Point> Map::FromFrenet(const std::vector<FrenetPoint> &points,
   }
 
   return result;
+}
+
+FrenetPoint Map::ToFrenet(const Point &pt, double sStart) const {
+  const double gamma = 0.001;
+  const double precision = 1e-5;
+
+  double s = ClampFrenetS(sStart);
+  double prevStep = s;
+
+  // clang-format off
+  // f(s) = (pt.x - spline_x(s))^2 + (pt.y - spline_y(s)) ^ 2) ^ 0.5
+  // u = (pt.x - spline_x(s)) ^ 2 + (pt.y - spline_y(s)) ^ 2
+  // df(s)/ds = u ^ 0.5 = du(s)/ds / (2 * u ^ 0.5)
+  // du(s)/ds = 2 * (pt.x - spline_x(s)) * (-spline_x.deriv(1, s)) + 2 * (pt.y - spline_y(s)) * (-spline_y.deriv(1, s))
+  // 
+  //            2 * (pt.x - spline_x(s)) * (-spline_x.deriv(1, s)) + 2 * (pt.y - spline_y(s)) * (-spline_y.deriv(1, s))
+  // df(s)/ds = ------------------------------------------------------------------------------------------------------- =
+  //            2 * ( (pt.x - spline_x(s)) ^ 2 + (pt.y - spline_y(s)) ^ 2 )^0.5
+  //
+  //       (pt.x - spline_x(s)) * spline_x.deriv(1, s) + (pt.y - spline_y(s)) * spline_y.deriv(1, s)
+  // = -  ------------------------------------------------------------------------------------------------------ =
+  //       ( (pt.x - spline_x(s)) ^ 2 + (pt.y - spline_y(s)) ^ 2 )^0.5
+  //
+  // : errX = pt.x - spline_x(s),
+  // : errY = pt.y - spline_y(s)
+  //
+  //       errX * spline_x.deriv(1, s) + errY * spline_y.deriv(1, s)
+  // = -  ----------------------------------------------------------- =
+  //       (errX ^ 2 + errY ^ 2)^0.5
+  // clang-format on
+
+  while (prevStep > precision) {
+    const auto prevS = s;
+    const double errX = pt.x - m_splineX[1](s);
+    const double errY = pt.y - m_splineY[1](s);
+    const double df =
+        -(errX * m_splineX[1].deriv(1, s) + errY * m_splineY[1].deriv(1, s)) /
+        sqrt(errX * errX + errY * errY);
+    s += -gamma * df;
+    prevStep = std::abs(s - prevS);
+  }
+
+  const double nx = m_splineDx[1](s);
+  const double ny = m_splineDy[1](s);
+  const double dx = pt.x - m_splineX[1](s);
+  const double dy = pt.y - m_splineY[1](s);
+  double d = 0;
+
+  if (nx == 0) {
+    d = dy / ny;
+  } else if (ny == 0) {
+    d = dx / nx;
+  } else {
+    d = (dx / nx + dy / ny) / 2.0;
+  }
+
+  return FrenetPoint{s, d};
 }
 
 double Map::ClampFrenetS(double s) const {

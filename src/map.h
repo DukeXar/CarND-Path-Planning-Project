@@ -32,6 +32,8 @@ class Map {
   std::vector<Point> FromFrenet(const std::vector<FrenetPoint> &pt,
                                 bool smooth = kDefaultSmooth) const;
 
+  FrenetPoint ToFrenet(const Point &pt, double sStart) const;
+
   double ClampFrenetS(double s) const;
 
   size_t get_size() const { return m_waypointsFn.size(); }

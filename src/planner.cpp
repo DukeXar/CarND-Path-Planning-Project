@@ -690,6 +690,22 @@ BestTrajectories Decider::ChooseBestTrajectory(
 
   std::cout << "Current lane " << m_currentLane << "\n";
 
+  // The coorinates of cars in Frenet frame from the simulator are calculated
+  // without smoothing, which means that we could calculate distances
+  // incorrectly.
+  // This was a try to improve the situation, but it did not.
+  // std::vector<OtherCarSensor> sensors;
+  // sensors.resize(inputSensors.size());
+  // for (const auto& sensor : inputSensors) {
+  //   OtherCarSensor s = sensor;
+  //   s.fnPos = m_map.ToFrenet(s.pos, s.fnPos.s);
+  //   std::cout << "Got [" << s.fnPos.s << "," << s.fnPos.d << "], orig ["
+  //             << sensor.fnPos.s << "," << sensor.fnPos.d << "], xy=[" <<
+  //             s.pos.x
+  //             << "," << s.pos.y << "]\n";
+  //   sensors.push_back(s);
+  // }
+
   World world(sensors, m_laneWidth);
   const auto& snapshot = world.Simulate(m_latencySeconds);
 
