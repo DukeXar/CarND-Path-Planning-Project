@@ -26,11 +26,7 @@ const double kAlgorithmLatencySeconds = 1.0;
 const int kPointsToKeep = kAlgorithmLatencySeconds / kRefreshPeriodSeconds;
 // This is maximum time we think the planner can stuck - we should have
 // trajectory for that time to keep moving.
-const double kMaxUpdateLatencySeconds = 1;
-// const double kMinTrajectoryTimeSeconds =
-//     std::max(kReplanPeriodSeconds, kMaxUpdateLatencySeconds);
-
-const double kMinTrajectoryTimeSeconds = 3;
+const double kMinTrajectoryTimeSeconds = 2;
 
 // README: Also the car should not experience total acceleration over 10 m/s^2
 // and jerk that is greater than 50 m/s^3.
@@ -41,12 +37,7 @@ const double kTargetKeepSpeed = MiphToMs(48);
 const double kOtherVehicleMonitorDistance = 50;
 const double kMinToLaneBorderMeters = 0.8;
 const double kLaneWidthMeters = 4;
-const double kMaxLaneChangeTimeSeconds = 3;
-const double kMinCarDistanceMeters = 10;
-// The trajectory time depends on speed and distance. We monitor 50 meters in
-// front (kOtherVehicleMonitorDistance), so that lets say with minimal speed of
-// 10 m/s, it should be 5 seconds. It should be possible to automate this.
-const double kMaxTrajectoryTimeToKeepDistanceSeconds = 7;
+// const double kMaxLaneChangeTimeSeconds = 3;
 
 // Print CHECKPOINT failure when trajectory cost is higher than this value.
 const int kHighCostCheckpoint = 300;
@@ -118,13 +109,7 @@ void DisplayLaneOccupancy(const Decider::LaneToOccupancy& speeds) {
 double GetMinDistanceToKeep(double speed) {
   // s = 0.5/a * v^2
   double distanceToFullStop = speed * speed * 0.5 / kMaxAccelerationMs2;
-  return distanceToFullStop;
-}
-
-double GetMaxTimeToStop(double speed) {
-  // v = v0 - a * t = 0
-  // t = v0 / a
-  return speed / kMaxAccelerationMs2;
+  return 1.5 * distanceToFullStop;
 }
 
 }  // namespace
@@ -653,7 +638,7 @@ std::pair<bool, BestTrajectories> Decider::HandleChangingLaneState(
   const double currentLaneD = CurrentLaneToDPos(m_currentLane, m_laneWidth);
   bool areWeThereYet =
       (m_currentLane == m_targetLane) &&
-      (std::abs(currentLaneD - startState.d.s) < m_laneWidth / 10);
+      (std::abs(currentLaneD - startState.d.s) < m_laneWidth / 20);
 
   const char* dest = m_changingLeft ? "left" : "right";
 
