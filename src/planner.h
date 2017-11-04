@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <memory>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 #include "map.h"
@@ -19,6 +20,17 @@ struct CarEx {
   FrenetPoint fp;
 };
 
+// This is a poor man's implementation of the 'memento' pattern.
+struct ModeParams {
+  int currentLane;
+  int followingCarId;
+  int sourceLane;
+  int targetLane;
+  bool changingLeft;
+  double targetSpeed;
+  double lastLaneChangeS;
+};
+
 class Decider {
  public:
   enum class Mode { kKeepingLane, kChangingLane };
@@ -28,10 +40,9 @@ class Decider {
   Decider(double laneWidth, double minTrajectoryTimeSeconds,
           double latencySeconds, const Map& map);
 
-  BestTrajectories ChooseBestTrajectory(
-      const State2D& startState, const std::vector<OtherCarSensor>& sensors);
-
-  Mode GetMode() const { return m_mode; }
+  std::vector<BestTrajectories> ChooseBestTrajectory(
+      const State2D& startState, const std::vector<OtherCarSensor>& sensors,
+      int currentTrajectoryIdx = -1);
 
  private:
   double GetSafeLaneOffset() const;
@@ -54,13 +65,13 @@ class Decider {
   BestTrajectories BuildKeepSpeedTrajectory(const State2D& startState,
                                             double targetSpeed, World& world);
 
-  std::pair<bool, BestTrajectories> HandleKeepSpeedState(
+  std::tuple<bool, ModeParams, BestTrajectories> HandleChangingLaneState(
       const State2D& startState, const WorldSnapshot& snapshot, World& world,
-      const LaneToOccupancy& laneOccupancy);
+      const LaneToOccupancy& laneOccupancy, const ModeParams& params);
 
-  std::pair<bool, BestTrajectories> HandleChangingLaneState(
-      const State2D& startState, const WorldSnapshot& snapshot, World& world,
-      const LaneToOccupancy& laneOccupancy);
+  std::tuple<Decider::Mode, ModeParams, BestTrajectories> ChooseBestTrajectory(
+      const State2D& startState, World& world, double time, Mode mode,
+      const ModeParams& params);
 
  private:
   double m_laneWidth;
@@ -68,15 +79,7 @@ class Decider {
   double m_latencySeconds;
   const Map& m_map;
 
-  Mode m_mode;
-
-  int m_currentLane;
-
-  int m_followingCarId;
-  int m_sourceLane;
-  int m_targetLane;
-  bool m_changingLeft;
-  double m_targetSpeed;
+  std::vector<std::tuple<Mode, ModeParams, BestTrajectories>> m_trajectories;
 
   int m_updateNumber;
 };
@@ -99,6 +102,7 @@ class Planner {
   struct FullState {
     State2D fn;
     Point pt;
+    int trajIdx;
   };
 
   std::vector<FullState> m_plannedPath;
