@@ -46,7 +46,7 @@ int main() {
 
   std::unique_ptr<Planner> planner;
 
-  h.onMessage([&planner](uWS::WebSocket<uWS::SERVER> ws, char *data,
+  h.onMessage([&planner](uWS::WebSocket<uWS::SERVER> ws, char* data,
                          size_t length, uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -96,7 +96,7 @@ int main() {
 
           std::vector<OtherCarSensor> sensors;
 
-          for (const auto &input : j[1]["sensor_fusion"]) {
+          for (const auto& input : j[1]["sensor_fusion"]) {
             int id = input[0];
             Point pos{input[1], input[2]};
             Point speed{input[3], input[4]};
@@ -113,7 +113,7 @@ int main() {
           vector<double> next_x_vals;
           vector<double> next_y_vals;
 
-          for (const auto &pt : plannedPath) {
+          for (const auto& pt : plannedPath) {
             next_x_vals.push_back(pt.x);
             next_y_vals.push_back(pt.y);
           }
@@ -143,11 +143,11 @@ int main() {
   });
 
   h.onDisconnection(
-      [&h](uWS::WebSocket<uWS::SERVER> ws, int code, char *message,
+      [&h](uWS::WebSocket<uWS::SERVER> ws, int code, char* message,
            size_t length) { std::cout << "Disconnected" << std::endl; });
 
   int port = 4567;
-  if (h.listen("127.0.0.1", port)) {
+  if (h.listen(port)) {
     std::cout << "Listening to port " << port << std::endl;
   } else {
     std::cerr << "Failed to listen to port" << std::endl;
