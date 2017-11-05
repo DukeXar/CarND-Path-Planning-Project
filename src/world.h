@@ -1,7 +1,7 @@
 #pragma once
 
 #include <memory>
-#include <map>
+#include <unordered_map>
 #include <vector>
 #include "map.h"
 #include "trajectory.h"
@@ -27,13 +27,15 @@ class WorldSnapshot {
   OtherCar GetCarById(int id) const;
   double GetLaneWidth() const { return m_laneWidth; }
 
-  const std::map<int, OtherCar>& GetAllCars() const { return m_byId; }
-  const std::multimap<int, int>& GetAllCarsByLane() const { return m_cars; }
+  const std::unordered_map<int, OtherCar>& GetAllCars() const { return m_byId; }
+  const std::unordered_multimap<int, int>& GetAllCarsByLane() const {
+    return m_cars;
+  }
 
  private:
   double m_laneWidth;
-  std::multimap<int, int> m_cars;
-  std::map<int, OtherCar> m_byId;
+  std::unordered_multimap<int, int> m_cars;
+  std::unordered_map<int, OtherCar> m_byId;
 };
 
 class World {
@@ -43,8 +45,8 @@ class World {
 
  private:
   double m_laneWidth;
-  std::map<int, std::unique_ptr<Target>> m_models;
-  std::map<double, std::unique_ptr<WorldSnapshot>> m_snapshots;
+  std::unordered_map<int, std::unique_ptr<Target>> m_models;
+  std::unordered_map<double, std::unique_ptr<WorldSnapshot>> m_snapshots;
 };
 
 class ConstantSpeedTarget : public Target {
