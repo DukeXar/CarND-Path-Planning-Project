@@ -84,7 +84,7 @@ const WorldSnapshot& World::Simulate(double time) {
 
   auto snapPtr =
       std::unique_ptr<WorldSnapshot>(new WorldSnapshot(cars, m_laneWidth));
-  auto pos = m_snapshots.insert({time, std::move(snapPtr)}).first;
+  auto pos = m_snapshots.emplace(time, std::move(snapPtr)).first;
   return *(pos->second);
 }
 
