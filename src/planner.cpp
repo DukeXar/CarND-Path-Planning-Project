@@ -24,10 +24,11 @@ const double kReplanPeriodSeconds = 0.5;
 const double kAlgorithmLatencySeconds = 1.0;
 // E.g. 1 second latency of the algorithm, 50 points
 const int kPointsToKeep = kAlgorithmLatencySeconds / kRefreshPeriodSeconds;
-// This is maximum time we think the planner can stuck - we should have
-// trajectory for that time to keep moving.
 // TODO: is this needed?
 const double kMinTrajectoryTimeSeconds = 2;
+// This is maximum time we think the planner can stuck - we should have
+// trajectory for that time to keep moving.
+const double kMinTrajectoriesTimeSeconds = 5;
 
 // README: Also the car should not experience total acceleration over 10 m/s^2
 // and jerk that is greater than 50 m/s^3.
@@ -36,11 +37,11 @@ const double kMaxSpeedMs = MiphToMs(49);
 const double kTargetKeepSpeed = MiphToMs(48);
 // 50 works pretty well with combination of number of samples
 const double kOtherVehicleMonitorDistance = 50;
-const double kMinToLaneBorderMeters = 0.75;
+const double kMinToLaneBorderMeters = 0.9;
 const double kLaneWidthMeters = 4;
 // const double kMaxLaneChangeTimeSeconds = 3;
 const double kMinConsequentLaneChangesMeters = 200;
-const double kDistanceToFullStopMultiplier = 1.0;
+const double kDistanceToFullStopMultiplier = 1.2;
 
 // Print CHECKPOINT failure when trajectory cost is higher than this value.
 const int kHighCostCheckpoint = 300;
@@ -409,6 +410,7 @@ double OutsideOfTheRoadPenalty(const PolyFunction& sTraj,
 
   bool failed = false;
   for (int i = 0; i < totalIntervals; ++i) {
+    // TODO check according to simulator's impression?
     double d = dTraj.Eval(i * step);
     if (d <= roadLeft || d >= roadRight) {
       failed = true;
@@ -508,7 +510,7 @@ BestTrajectories Decider::BuildChangingLaneTrajectory(const State2D& startState,
       {1, std::bind(ClosenessToTargetSState, _1, _2, target, _3)},
       {2, std::bind(ClosenessToTargetDState, _1, _2, target, _3)},
       {10, std::bind(&Decider::LimitAccelerationAndSpeed, this, _1, _2, _3)},
-      //{0.5, reactionTimePenalty},
+      {0.02, reactionTimePenalty},
       {400, stayInLanesPenalty},
       {500, hasGoodDistanceToOthers},
   };
@@ -524,7 +526,7 @@ BestTrajectories Decider::BuildChangingLaneTrajectory(const State2D& startState,
   cfg.minTime = 0.3;
   // This is not going to limit max lane change time, as we replan, but it works
   // quite well.
-  cfg.maxTime = 3 * m_minTrajectoryTimeSeconds;
+  cfg.maxTime = 5;
   cfg.timeStep = 0.2;
 
   const auto result = FindBestTrajectories(startState, target, cfg, weighted);
@@ -648,9 +650,11 @@ BestTrajectories Decider::BuildKeepSpeedTrajectory(const State2D& startState,
   return result;
 }
 
-std::tuple<bool, ModeParams, BestTrajectories> Decider::HandleChangingLaneState(
-    const State2D& startState, const WorldSnapshot& snapshot, World& world,
-    const LaneToOccupancy& laneOccupancy, const ModeParams& params) {
+std::tuple<bool, Decider::ModeParams, BestTrajectories>
+Decider::HandleChangingLaneState(const State2D& startState,
+                                 const WorldSnapshot& snapshot, World& world,
+                                 const LaneToOccupancy& laneOccupancy,
+                                 const ModeParams& params) {
   const double currentLaneD =
       CurrentLaneToDPos(params.currentLane, m_laneWidth);
 
@@ -686,7 +690,7 @@ std::tuple<bool, ModeParams, BestTrajectories> Decider::HandleChangingLaneState(
   return std::make_tuple(false, ModeParams{}, BestTrajectories{});
 }
 
-std::tuple<Decider::Mode, ModeParams, BestTrajectories>
+std::tuple<Decider::Mode, Decider::ModeParams, BestTrajectories>
 Decider::ChooseBestTrajectory(const State2D& startState, World& world,
                               double time, Mode mode,
                               const ModeParams& params) {
@@ -871,7 +875,7 @@ std::vector<BestTrajectories> Decider::ChooseBestTrajectory(
 
   m_trajectories.clear();
 
-  while (currentTime < 5) {
+  while (currentTime < kMinTrajectoriesTimeSeconds) {
     Mode newMode;
     ModeParams newParams;
     BestTrajectories newTrajectories;

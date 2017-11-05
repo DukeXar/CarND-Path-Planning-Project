@@ -20,20 +20,22 @@ struct CarEx {
   FrenetPoint fp;
 };
 
-// This is a poor man's implementation of the 'memento' pattern.
-struct ModeParams {
-  int currentLane;
-  int followingCarId;
-  int sourceLane;
-  int targetLane;
-  bool changingLeft;
-  double targetSpeed;
-  double lastLaneChangeS;
-};
-
 class Decider {
  public:
   enum class Mode { kKeepingLane, kChangingLane };
+
+  // This is a poor man's implementation of the 'memento' pattern.
+
+  struct ModeParams {
+    int currentLane;
+    int followingCarId;
+    int sourceLane;
+    int targetLane;
+    bool changingLeft;
+    double targetSpeed;
+    double lastLaneChangeS;
+  };
+
   typedef std::unordered_map<int, std::pair<bool, OtherCar>> LaneToOccupancy;
 
  public:
