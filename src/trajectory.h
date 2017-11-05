@@ -25,10 +25,12 @@ class PolyFunction {
   std::array<double, 6> m_coeff;
 };
 
-PolyFunction JerkMinimizingTrajectory(const State& start, const State& end,
+PolyFunction JerkMinimizingTrajectory(const State& start,
+                                      const State& end,
                                       double time);
 
-PolyFunction JerkMinimizingTrajectory4(const State& start, const State& end,
+PolyFunction JerkMinimizingTrajectory4(const State& start,
+                                       const State& end,
                                        double time);
 
 struct State2D {
@@ -64,7 +66,8 @@ const double kSigmaDV = 1.0;
 const double kSigmaDS = 0.5;
 
 typedef std::function<double(const PolyFunction& sTraj,
-                             const PolyFunction& dTraj, double targetTime)>
+                             const PolyFunction& dTraj,
+                             double targetTime)>
     CostFunction;
 
 typedef std::vector<std::pair<double, CostFunction>> WeightedFunctions;
@@ -76,7 +79,8 @@ struct BestTrajectories {
   std::vector<double> detailedCost;
 };
 
-State2D PerturbTarget(const State2D& target, const State& sigmaS,
+State2D PerturbTarget(const State2D& target,
+                      const State& sigmaS,
                       const State& sigmaD);
 
 BestTrajectories FindBestTrajectories(const State2D& start,

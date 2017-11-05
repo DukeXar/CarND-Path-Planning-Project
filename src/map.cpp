@@ -7,7 +7,7 @@
 #include "Dense"
 #include "utils.h"
 
-Point Map::FromFrenet(const FrenetPoint &pt, bool smooth) const {
+Point Map::FromFrenet(const FrenetPoint& pt, bool smooth) const {
   if (!m_splinesReady) {
     throw std::runtime_error("Freeze() must be called before");
   }
@@ -22,7 +22,7 @@ Point Map::FromFrenet(const FrenetPoint &pt, bool smooth) const {
   return {x, y};
 }
 
-std::vector<Point> Map::FromFrenet(const std::vector<FrenetPoint> &points,
+std::vector<Point> Map::FromFrenet(const std::vector<FrenetPoint>& points,
                                    bool smooth) const {
   if (!m_splinesReady) {
     throw std::runtime_error("Freeze() must be called before");
@@ -31,14 +31,14 @@ std::vector<Point> Map::FromFrenet(const std::vector<FrenetPoint> &points,
   std::vector<Point> result;
   result.reserve(points.size());
 
-  for (const auto &pt : points) {
+  for (const auto& pt : points) {
     result.push_back(FromFrenet(pt, smooth));
   }
 
   return result;
 }
 
-FrenetPoint Map::ToFrenet(const Point &pt, double sStart) const {
+FrenetPoint Map::ToFrenet(const Point& pt, double sStart) const {
   const double gamma = 0.001;
   const double precision = 1e-5;
 
@@ -104,13 +104,13 @@ double Map::ClampFrenetS(double s) const {
   return s;
 }
 
-void Map::AddWaypoint(const Point &pt, const CurvePoint &cp) {
+void Map::AddWaypoint(const Point& pt, const CurvePoint& cp) {
   m_splinesReady = false;
   m_waypointsXY.push_back(pt);
   m_waypointsFn.push_back(cp);
 }
 
-void ReadMap(const std::string &filename, Map &map) {
+void ReadMap(const std::string& filename, Map& map) {
   std::ifstream in_map_(filename.c_str(), std::ifstream::in);
   std::string line;
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <memory>
-#include <unordered_map>
+#include <map>
 #include <vector>
 #include "map.h"
 #include "trajectory.h"
@@ -27,15 +27,13 @@ class WorldSnapshot {
   OtherCar GetCarById(int id) const;
   double GetLaneWidth() const { return m_laneWidth; }
 
-  const std::unordered_map<int, OtherCar>& GetAllCars() const { return m_byId; }
-  const std::unordered_multimap<int, int>& GetAllCarsByLane() const {
-    return m_cars;
-  }
+  const std::map<int, OtherCar>& GetAllCars() const { return m_byId; }
+  const std::multimap<int, int>& GetAllCarsByLane() const { return m_cars; }
 
  private:
   double m_laneWidth;
-  std::unordered_multimap<int, int> m_cars;
-  std::unordered_map<int, OtherCar> m_byId;
+  std::multimap<int, int> m_cars;
+  std::map<int, OtherCar> m_byId;
 };
 
 class World {
@@ -45,14 +43,17 @@ class World {
 
  private:
   double m_laneWidth;
-  std::unordered_map<int, std::unique_ptr<Target>> m_models;
-  std::unordered_map<double, std::unique_ptr<WorldSnapshot>> m_snapshots;
+  std::map<int, std::unique_ptr<Target>> m_models;
+  std::map<double, std::unique_ptr<WorldSnapshot>> m_snapshots;
 };
 
 class ConstantSpeedTarget : public Target {
  public:
-  explicit ConstantSpeedTarget(double speed, double startS, const State& stateD,
-                               double distance = 0, double latency = 0)
+  explicit ConstantSpeedTarget(double speed,
+                               double startS,
+                               const State& stateD,
+                               double distance = 0,
+                               double latency = 0)
       : m_speed(speed),
         m_startS(startS),
         m_stateD(stateD),
@@ -71,8 +72,10 @@ class ConstantSpeedTarget : public Target {
 
 class ConstantAccelerationTargetSpeedTarget : public Target {
  public:
-  explicit ConstantAccelerationTargetSpeedTarget(double targetSpeed, double acc,
-                                                 double startS, double startV,
+  explicit ConstantAccelerationTargetSpeedTarget(double targetSpeed,
+                                                 double acc,
+                                                 double startS,
+                                                 double startV,
                                                  const State& startD,
                                                  double distance = 0,
                                                  double latency = 0)

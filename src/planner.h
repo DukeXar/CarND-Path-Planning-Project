@@ -39,11 +39,14 @@ class Decider {
   typedef std::unordered_map<int, std::pair<bool, OtherCar>> LaneToOccupancy;
 
  public:
-  Decider(double laneWidth, double minTrajectoryTimeSeconds,
-          double latencySeconds, const Map& map);
+  Decider(double laneWidth,
+          double minTrajectoryTimeSeconds,
+          double latencySeconds,
+          const Map& map);
 
   std::vector<BestTrajectories> ChooseBestTrajectory(
-      const State2D& startState, const std::vector<OtherCarSensor>& sensors,
+      const State2D& startState,
+      const std::vector<OtherCarSensor>& sensors,
       int currentTrajectoryIdx = -1);
 
  private:
@@ -56,7 +59,8 @@ class Decider {
                                    double targetTime) const;
 
   BestTrajectories BuildChangingLaneTrajectory(const State2D& startState,
-                                               int sourceLane, int targetLane,
+                                               int sourceLane,
+                                               int targetLane,
                                                double targetSpeed,
                                                World& world);
   BestTrajectories BuildKeepDistanceTrajectory(const State2D& startState,
@@ -65,14 +69,21 @@ class Decider {
                                                const WorldSnapshot& snapshot,
                                                World& world);
   BestTrajectories BuildKeepSpeedTrajectory(const State2D& startState,
-                                            double targetSpeed, World& world);
+                                            double targetSpeed,
+                                            World& world);
 
   std::tuple<bool, ModeParams, BestTrajectories> HandleChangingLaneState(
-      const State2D& startState, const WorldSnapshot& snapshot, World& world,
-      const LaneToOccupancy& laneOccupancy, const ModeParams& params);
+      const State2D& startState,
+      const WorldSnapshot& snapshot,
+      World& world,
+      const LaneToOccupancy& laneOccupancy,
+      const ModeParams& params);
 
   std::tuple<Decider::Mode, ModeParams, BestTrajectories> ChooseBestTrajectory(
-      const State2D& startState, World& world, double time, Mode mode,
+      const State2D& startState,
+      World& world,
+      double time,
+      Mode mode,
       const ModeParams& params);
 
  private:

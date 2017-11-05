@@ -28,7 +28,7 @@ const int kPointsToKeep = kAlgorithmLatencySeconds / kRefreshPeriodSeconds;
 const double kMinTrajectoryTimeSeconds = 2;
 // This is maximum time we think the planner can stuck - we should have
 // trajectory for that time to keep moving.
-const double kMinTrajectoriesTimeSeconds = 5;
+const double kMinTrajectoriesTimeSeconds = 2;
 
 // README: Also the car should not experience total acceleration over 10 m/s^2
 // and jerk that is greater than 50 m/s^3.
@@ -144,7 +144,8 @@ typedef std::vector<std::pair<double, CostFunction>> WeightedFunctions;
 
 double WeightedCostFunction(const WeightedFunctions& weigtedFunctions,
                             const PolyFunction& sTraj,
-                            const PolyFunction& dTraj, double targetTime) {
+                            const PolyFunction& dTraj,
+                            double targetTime) {
   double result = 0;
   for (const auto& wf : weigtedFunctions) {
     result += wf.first * wf.second(sTraj, dTraj, targetTime);
@@ -152,7 +153,9 @@ double WeightedCostFunction(const WeightedFunctions& weigtedFunctions,
   return result;
 }
 
-double Logistic(double x) { return 2.0 / (1 + exp(-x)) - 1.0; }
+double Logistic(double x) {
+  return 2.0 / (1 + exp(-x)) - 1.0;
+}
 
 double ClosenessCost(double x1, double x2, double sigma) {
   return Logistic(std::abs(x1 - x2) / sigma);
@@ -168,7 +171,9 @@ double GetAngle(const Point& p1, const Point& p2) {
 }
 
 std::pair<double, double> GetMaxCartesianAccelerationAndSpeed(
-    const PolyFunction& sTraj, const PolyFunction& dTraj, double targetTime,
+    const PolyFunction& sTraj,
+    const PolyFunction& dTraj,
+    double targetTime,
     const Map& map) {
   double maxAccSoFar = 0;
   double maxSpeedSoFar = 0;
@@ -278,8 +283,10 @@ double PowerLimit(double x, double limit, double threshold) {
 
 double CartesianAccelerationLimitCost(const PolyFunction& sTraj,
                                       const PolyFunction& dTraj,
-                                      double targetTime, double accLimit,
-                                      double speedLimit, const Map& map) {
+                                      double targetTime,
+                                      double accLimit,
+                                      double speedLimit,
+                                      const Map& map) {
   const auto result =
       GetMaxCartesianAccelerationAndSpeed(sTraj, dTraj, targetTime, map);
   const double maxAccSoFar = result.first;
@@ -298,9 +305,12 @@ struct LaneDistanceConfig {
   bool checkBack;
 };
 
-double ExceedsSafeDistance(const PolyFunction& sTraj, const PolyFunction& dTraj,
-                           double targetTime, double worldTimeOffset,
-                           World& world, const Map& map,
+double ExceedsSafeDistance(const PolyFunction& sTraj,
+                           const PolyFunction& dTraj,
+                           double targetTime,
+                           double worldTimeOffset,
+                           World& world,
+                           const Map& map,
                            const std::vector<LaneDistanceConfig>& lanesToCheck,
                            bool checkFrontOnly = true,
                            double minDistanceStrict = -1,
@@ -375,7 +385,8 @@ double ExceedsSafeDistance(const PolyFunction& sTraj, const PolyFunction& dTraj,
 }
 
 double ClosenessToTargetSState(const PolyFunction& sTraj,
-                               const PolyFunction& dTraj, const Target& target,
+                               const PolyFunction& dTraj,
+                               const Target& target,
                                double targetTime) {
   auto targetState = target.At(targetTime);
 
@@ -389,7 +400,8 @@ double ClosenessToTargetSState(const PolyFunction& sTraj,
 }
 
 double ClosenessToTargetDState(const PolyFunction& sTraj,
-                               const PolyFunction& dTraj, const Target& target,
+                               const PolyFunction& dTraj,
+                               const Target& target,
                                double targetTime) {
   auto targetState = target.At(targetTime);
 
@@ -403,8 +415,10 @@ double ClosenessToTargetDState(const PolyFunction& sTraj,
 }
 
 double OutsideOfTheRoadPenalty(const PolyFunction& sTraj,
-                               const PolyFunction& dTraj, double roadLeft,
-                               double roadRight, double targetTime) {
+                               const PolyFunction& dTraj,
+                               double roadLeft,
+                               double roadRight,
+                               double targetTime) {
   const double step = kRefreshPeriodSeconds;
   const size_t totalIntervals = targetTime / step;
 
@@ -422,7 +436,8 @@ double OutsideOfTheRoadPenalty(const PolyFunction& sTraj,
 }
 
 double ClosenessToCenterOfTheLane(const PolyFunction& sTraj,
-                                  const PolyFunction& dTraj, double targetTime,
+                                  const PolyFunction& dTraj,
+                                  double targetTime,
                                   double currentLaneD) {
   const double step = kRefreshPeriodSeconds;
   const size_t totalIntervals = targetTime / step;
@@ -439,8 +454,10 @@ double ClosenessToCenterOfTheLane(const PolyFunction& sTraj,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-Decider::Decider(double laneWidth, double minTrajectoryTimeSeconds,
-                 double latencySeconds, const Map& map)
+Decider::Decider(double laneWidth,
+                 double minTrajectoryTimeSeconds,
+                 double latencySeconds,
+                 const Map& map)
     : m_laneWidth(laneWidth),
       m_minTrajectoryTimeSeconds(minTrajectoryTimeSeconds),
       m_latencySeconds(latencySeconds),
@@ -534,8 +551,11 @@ BestTrajectories Decider::BuildChangingLaneTrajectory(const State2D& startState,
 }
 
 BestTrajectories Decider::BuildKeepDistanceTrajectory(
-    const State2D& startState, int followingCarId, double distanceToKeep,
-    const WorldSnapshot& snapshot, World& world) {
+    const State2D& startState,
+    int followingCarId,
+    double distanceToKeep,
+    const WorldSnapshot& snapshot,
+    World& world) {
   const int currentLane = DPosToCurrentLane(startState.d.s, m_laneWidth);
   const double currentLaneD = CurrentLaneToDPos(currentLane, m_laneWidth);
 
@@ -652,7 +672,8 @@ BestTrajectories Decider::BuildKeepSpeedTrajectory(const State2D& startState,
 
 std::tuple<bool, Decider::ModeParams, BestTrajectories>
 Decider::HandleChangingLaneState(const State2D& startState,
-                                 const WorldSnapshot& snapshot, World& world,
+                                 const WorldSnapshot& snapshot,
+                                 World& world,
                                  const LaneToOccupancy& laneOccupancy,
                                  const ModeParams& params) {
   const double currentLaneD =
@@ -691,8 +712,10 @@ Decider::HandleChangingLaneState(const State2D& startState,
 }
 
 std::tuple<Decider::Mode, Decider::ModeParams, BestTrajectories>
-Decider::ChooseBestTrajectory(const State2D& startState, World& world,
-                              double time, Mode mode,
+Decider::ChooseBestTrajectory(const State2D& startState,
+                              World& world,
+                              double time,
+                              Mode mode,
                               const ModeParams& params) {
   std::cout << "::: simulating world at time " << time << ", mode " << (int)mode
             << ", start=" << startState << std::endl;
@@ -828,7 +851,8 @@ State2D EvalState(const BestTrajectories& traj, double time) {
 }  // namespace
 
 std::vector<BestTrajectories> Decider::ChooseBestTrajectory(
-    const State2D& startState, const std::vector<OtherCarSensor>& sensors,
+    const State2D& startState,
+    const std::vector<OtherCarSensor>& sensors,
     int currentTrajectoryIdx) {
   ++m_updateNumber;
 
@@ -903,8 +927,10 @@ Planner::Planner(const Map& map)
     : m_updatePeriod(kRefreshPeriodSeconds),
       m_laneWidth(kLaneWidthMeters),
       m_map(map),
-      m_decider(kLaneWidthMeters, kMinTrajectoryTimeSeconds,
-                kAlgorithmLatencySeconds, m_map),
+      m_decider(kLaneWidthMeters,
+                kMinTrajectoryTimeSeconds,
+                kAlgorithmLatencySeconds,
+                m_map),
       m_updateNumber(0) {}
 
 std::vector<Point> Planner::Update(const CarEx& car,

@@ -13,7 +13,8 @@ WorldSnapshot::WorldSnapshot(const std::vector<OtherCar>& sensors,
   }
 }
 
-bool WorldSnapshot::GetClosestCar(int laneIdx, double s,
+bool WorldSnapshot::GetClosestCar(int laneIdx,
+                                  double s,
                                   OtherCar* result) const {
   auto pos = m_cars.find(laneIdx);
   if (pos == m_cars.end()) {

@@ -13,24 +13,20 @@ add_definitions(-std=c++11)
 #set(CMAKE_CXX_FLAGS, "${CXX_FLAGS}")
 
 set(sources src/main.cpp src/map.cpp src/planner.cpp src/trajectory.cpp src/world.cpp)
-set(road_sources src/road.cpp src/map.cpp src/planner.cpp src/trajectory.cpp src/world.cpp)
 
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin") 
 
 include_directories(/usr/local/include)
 include_directories(/usr/local/opt/openssl/include)
-include_directories(${CMAKE_SOURCE_DIR}/src/Eigen-3.3/Eigen)
 link_directories(/usr/local/lib)
 link_directories(/usr/local/opt/openssl/lib)
 link_directories(/usr/local/Cellar/libuv/1.12.0/lib)
 
 endif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin") 
 
+include_directories(${CMAKE_SOURCE_DIR}/src/Eigen-3.3/Eigen)
 
 add_executable(path_planning ${sources})
 
 target_link_libraries(path_planning z ssl uv uWS)
-
-add_executable(road ${road_sources})
-target_link_libraries(road)
