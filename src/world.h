@@ -20,6 +20,8 @@ struct OtherCar {
 };
 
 class WorldSnapshot {
+  static const size_t kMaxLaneIdx = 3;
+
  public:
   WorldSnapshot(const std::vector<OtherCar>& cars, double laneWidth);
 
@@ -27,15 +29,16 @@ class WorldSnapshot {
   OtherCar GetCarById(int id) const;
   double GetLaneWidth() const { return m_laneWidth; }
 
-  const std::unordered_map<int, OtherCar>& GetAllCars() const { return m_byId; }
-  const std::unordered_multimap<int, int>& GetAllCarsByLane() const {
-    return m_cars;
+  const std::vector<int>& GetAllCarsByLane(int laneIdx) const {
+    return m_cars[laneIdx];
   }
+
+  size_t GetMaxLaneIdx() const { return kMaxLaneIdx; }
 
  private:
   double m_laneWidth;
-  std::unordered_multimap<int, int> m_cars;
-  std::unordered_map<int, OtherCar> m_byId;
+  std::array<std::vector<int>, kMaxLaneIdx + 1> m_cars;
+  std::vector<OtherCar> m_byId;
 };
 
 class World {

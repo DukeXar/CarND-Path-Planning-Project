@@ -4,10 +4,15 @@
 WorldSnapshot::WorldSnapshot(const std::vector<OtherCar>& sensors,
                              double laneWidth)
     : m_laneWidth(laneWidth) {
+  m_byId.reserve(15);
+
   for (const auto& car : sensors) {
     int lane = DPosToCurrentLane(car.fnPos.d, laneWidth);
     if (lane >= 0) {
-      m_cars.insert({lane, car.id});
+      m_cars[lane].push_back(car.id);
+      if (car.id >= m_byId.size()) {
+        m_byId.resize(car.id + 1);
+      }
       m_byId[car.id] = car;
     }
   }
@@ -16,24 +21,19 @@ WorldSnapshot::WorldSnapshot(const std::vector<OtherCar>& sensors,
 bool WorldSnapshot::GetClosestCar(int laneIdx,
                                   double s,
                                   OtherCar* result) const {
-  auto pos = m_cars.find(laneIdx);
-  if (pos == m_cars.end()) {
+  if (laneIdx >= m_cars.size()) {
     return false;
   }
 
-  const auto range = m_cars.equal_range(laneIdx);
-  std::vector<int> carsInLane;
-  for (auto it = range.first; it != range.second; ++it) {
-    carsInLane.push_back(it->second);
-  }
+  std::vector<int> carsInLane = m_cars[laneIdx];
   std::sort(carsInLane.begin(), carsInLane.end(), [this](int id1, int id2) {
-    return m_byId.find(id1)->second.fnPos.s < m_byId.find(id2)->second.fnPos.s;
+    return m_byId[id1].fnPos.s < m_byId[id2].fnPos.s;
   });
 
   const OtherCar example{0, 0, {s, 0}};
   auto lb = std::lower_bound(carsInLane.begin(), carsInLane.end(), example,
                              [this](int id1, const OtherCar& c2) {
-                               const OtherCar& c1 = m_byId.find(id1)->second;
+                               const OtherCar& c1 = m_byId[id1];
                                return c1.fnPos.s < c2.fnPos.s;
                              });
 
@@ -42,18 +42,17 @@ bool WorldSnapshot::GetClosestCar(int laneIdx,
   }
 
   if (result) {
-    *result = m_byId.find(*lb)->second;
+    *result = m_byId[*lb];
   }
 
   return true;
 }
 
 OtherCar WorldSnapshot::GetCarById(int id) const {
-  auto pos = m_byId.find(id);
-  if (pos == m_byId.end()) {
-    throw std::runtime_error("Not found");
+  if (id >= m_byId.size()) {
+    throw std::runtime_error("Not found ");
   }
-  return pos->second;
+  return m_byId[id];
 }
 
 World::World(const std::vector<OtherCarSensor>& sensors, double laneWidth)
